@@ -37,6 +37,7 @@ def create_app(config_name=None):
     from .routes.search import bp as search_bp
     from .routes.activities import bp as activities_bp
     from .routes.dashboard import bp as dashboard_bp
+    from .routes.auth import bp as auth_bp
 
     app.register_blueprint(customers_bp, url_prefix='/api/customers')
     app.register_blueprint(scoring_bp, url_prefix='/api/scoring')
@@ -44,6 +45,7 @@ def create_app(config_name=None):
     app.register_blueprint(search_bp, url_prefix='/api/search')
     app.register_blueprint(activities_bp, url_prefix='/api/activities')
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
 
     # 初始化邮件发送服务（调度器）
     from .services.email_sender_service import init_sender
@@ -67,12 +69,14 @@ def create_app(config_name=None):
     def internal_error(e):
         return jsonify({'code': 500, 'message': '服务器内部错误'}), 500
 
-    # 创建数据库表（开发环境自动建表）
+    # 创建数据库表 + 确保 admin 账号存在
     with app.app_context():
         try:
             db.create_all()
+            from .routes.auth import ensure_admin
+            ensure_admin()
         except Exception as e:
-            print(f"[WARNING] 数据库连接失败，请确认 MySQL 已启动: {e}")
+            print(f"[WARNING] 数据库操作失败: {e}")
 
     return app
 

@@ -318,6 +318,19 @@ class ActivityLog(db.Model):
     customer = db.relationship('Customer', backref='activity_logs')
 
 
+class User(db.Model):
+    """管理员账号表"""
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    nickname = db.Column(db.String(100))
+    role = db.Column(db.String(20), default='admin')
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 # ─── 产品 / HS CODE ────────────────────────────────────────────────────────────
 
 class Product(db.Model):

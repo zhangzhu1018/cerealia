@@ -26,7 +26,7 @@ services:
       dockerfile: backend/Dockerfile
     container_name: caviar_backend
     ports:
-      - "5000:5000"
+      - "5001:5000"
     environment:
       DB_HOST: mysql
       DB_USER: root
@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
     container_name: caviar_frontend
     ports:
-      - "3001:80"
+      - "3002:80"
     depends_on:
       - backend
     networks:

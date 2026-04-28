@@ -4,6 +4,21 @@
 -- 适用数据库: MySQL 8.0+
 -- =====================================================
 
+-- 管理员账号表
+CREATE TABLE IF NOT EXISTS users (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    nickname VARCHAR(100),
+    role VARCHAR(20) DEFAULT 'admin',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 默认管理员账号: admin / caviar2024
+INSERT IGNORE INTO users (username, password_hash, nickname, role)
+VALUES ('admin', '1c76c7a99730d87996959a9fa95c0d3ee0e0621eaa060951b9605ed226f30d88', 'Administrator', 'admin');
+
 CREATE DATABASE IF NOT EXISTS caviar_crm
 DEFAULT CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
