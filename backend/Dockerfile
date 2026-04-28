@@ -7,6 +7,8 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 COPY . .
 
+# Railway 会覆盖 PORT 环境变量
 EXPOSE ${PORT:-5000}
 
-CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 4 --threads 2 app:app"]
+# 模块路径：backend.app（WORKDIR 是 /app，代码结构是 /app/backend/*）
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 4 --threads 2 backend.app:app"]
