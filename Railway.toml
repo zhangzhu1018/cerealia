@@ -1,0 +1,36 @@
+[railway]
+# 引用 Dockerfile（已存在）
+dockerfilePath = "backend/Dockerfile"
+
+[deploy]
+# 健康检查路径
+healthCheckPath = "/api/health"
+# 启动命令（默认用 Dockerfile CMD）
+# startCommand = "gunicorn --bind 0.0.0.0:5000 --workers 4 --threads 2 app:app"
+
+[deploy.maxRetries]
+  count = 3
+  delay = 5000
+
+# ── 后端 Nixpacks/Build 配置（用 Dockerfile 时基本忽略）──────────
+[build]
+  builder = "docker"
+  dockerfilePath = "backend/Dockerfile"
+
+# ── 后端环境变量（Railway 仪表盘会覆盖这些值）────────────────
+# ⚠️ 实际敏感值请在 Railway 项目仪表盘中配置，不要提交到代码库
+[environment.variables]
+  FLASK_ENV = "production"
+  # Railway MySQL 插件会自动注入以下变量（无需手动配置）
+  DB_HOST = "${MYSQL_HOST}"
+  DB_PORT = "${MYSQL_PORT}"
+  DB_USER = "${MYSQL_USER}"
+  DB_PASSWORD = "${MYSQL_PASSWORD}"
+  DB_NAME = "${MYSQL_DATABASE}"
+  SECRET_KEY = "CHANGE_ME_IN_RAILWAY_DASHBOARD"
+  CORS_ORIGINS = "https://caviar-crm.netlify.app,https://*.netlify.app"
+
+# ── 后端端口（Railway 自动注入 PORT 变量）─────────────────
+# Dockerfile 用 EXPOSE 5000，实际通过 $PORT 暴露
+[settings]
+  port = 5000

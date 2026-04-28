@@ -1,0 +1,27 @@
+[build]
+  command = "cd frontend && npm run build"
+  publish = "frontend/dist"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+# ── API 反向代理：将 /api/* 请求转发到 Railway 后端 ────────────
+# ⚠️ 替换 YOUR-RAILWAY-URL.railway.app 为实际 Railway 部署域名
+[[redirects]]
+  from = "/api/*"
+  to = "https://YOUR-RAILWAY-URL.railway.app/api/:splat"
+  status = 200
+  force = true
+  proxy = true
+
+# ── SPA 路由 fallback ────────────────────────────────────────
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[context.production]
+  command = "cd frontend && npm run build"
+
+[context.deploy-preview]
+  command = "cd frontend && npm run build"

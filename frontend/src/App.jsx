@@ -1,0 +1,31 @@
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { ToastProvider } from './components/ui/Toast'
+import Layout from './components/Layout'
+import Dashboard from './pages/Dashboard'
+import CustomerList from './pages/CustomerList'
+import CustomerDetail from './pages/CustomerDetail'
+import CustomerImportPage from './pages/CustomerImportPage'
+import EmailPage from './pages/EmailPage'
+import EmailSettingsPage from './pages/EmailSettingsPage'
+import SearchPage from './pages/SearchPage'
+import ActivitiesPage from './pages/ActivitiesPage'
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/customers" element={<CustomerList />} />
+          <Route path="/customers/:id" element={<CustomerDetail />} />
+          <Route path="/customers/import" element={<CustomerImportPage />} />
+          <Route path="/emails" element={<EmailPage />} />
+          <Route path="/email-settings" element={<EmailSettingsPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/activities" element={<ActivitiesPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </ToastProvider>
+  )
+}
