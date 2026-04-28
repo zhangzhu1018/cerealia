@@ -1,6 +1,10 @@
 [railway]
-# 引用 Dockerfile（已存在）
 dockerfilePath = "backend/Dockerfile"
+
+# 镜像地址（由 GitHub Actions 推送后更新）
+# 格式：ghcr.io/<owner>/<repo>:<tag>
+# Railway 可配置为从 GHCR 拉取，需在 Railway Dashboard 添加 GHCR_REGISTRY_TOKEN
+image = "ghcr.io/zhangzhu1018/caviar-crm-backend:latest"
 
 [deploy]
 # 健康检查路径
