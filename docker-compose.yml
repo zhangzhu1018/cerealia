@@ -22,8 +22,8 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: caviar_backend
     ports:
       - "5000:5000"
@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
     container_name: caviar_frontend
     ports:
-      - "3000:80"
+      - "3001:80"
     depends_on:
       - backend
     networks:
