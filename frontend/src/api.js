@@ -10,9 +10,15 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// 请求拦截器
+// 请求拦截器：自动附加 Authorization token
 api.interceptors.request.use(
-  (config) => config,
+  (config) => {
+    const token = localStorage.getItem('caviar_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
   (error) => Promise.reject(error)
 )
 
@@ -20,6 +26,12 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    // 401 → 清除 token 并跳转登录页
+    if (error.response?.status === 401) {
+      localStorage.removeItem('caviar_token')
+      localStorage.removeItem('caviar_user')
+      window.location.href = '/login'
+    }
     const msg = error.response?.data?.detail || error.message || '请求失败'
     return Promise.reject(new Error(msg))
   }

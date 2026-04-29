@@ -31,6 +31,25 @@ def _revoke_token(token: str):
         _token_store.pop(token, None)
 
 
+# ── login_required 装饰器 ──────────────────────────────────────────────────
+import functools
+
+def login_required(f):
+    """装饰器：要求请求携带有效的 Authorization: Bearer <token>"""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get('Authorization', '')
+        if not auth.startswith('Bearer '):
+            return jsonify({'code': 401, 'message': '请先登录'}), 401
+        uid = _uid_from_token(auth[7:])
+        if uid is None:
+            return jsonify({'code': 401, 'message': '登录已过期，请重新登录'}), 401
+        # 将 user_id 注入请求上下文
+        request._current_user_id = uid
+        return f(*args, **kwargs)
+    return wrapper
+
+
 def hash_password(password: str) -> str:
     """简单 SHA256 哈希（生产环境建议用 bcrypt）"""
     return hashlib.sha256(password.encode()).hexdigest()

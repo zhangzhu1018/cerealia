@@ -47,6 +47,32 @@ def create_app(config_name=None):
     app.register_blueprint(dashboard_bp, url_prefix='/api/dashboard')
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
 
+    # ── 对所有业务 Blueprint 添加登录验证 ──────────────────────────────────
+    from .routes.auth import _uid_from_token
+    from flask import request as _req
+    from flask import jsonify as _json
+
+    _protected_prefixes = (
+        '/api/customers', '/api/scoring', '/api/emails',
+        '/api/search', '/api/activities', '/api/dashboard'
+    )
+    _public_paths = ('/api/search/countries',)
+
+    @app.before_request
+    def _guard_all():
+        path = _req.path
+        if not any(path.startswith(p) for p in _protected_prefixes):
+            return None
+        if path in _public_paths:
+            return None
+        auth = _req.headers.get('Authorization', '')
+        if not auth.startswith('Bearer '):
+            return _json({'code': 401, 'message': '请先登录'}), 401
+        uid = _uid_from_token(auth[7:])
+        if uid is None:
+            return _json({'code': 401, 'message': '登录已过期'}), 401
+        return None
+
     # 初始化邮件发送服务（调度器）
     from .services.email_sender_service import init_sender
     init_sender(app)
