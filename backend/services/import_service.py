@@ -434,13 +434,13 @@ def import_customers(
             f'当前表头: {headers[:10]}'
         )
 
-    # 3. 构建去重集合
+    # 3. 构建去重集合（仅按公司名去重，不区分国家；同公司名跨国家视为重复）
     existing = set()
     if skip_duplicates:
         existing_customers = db.session.query(
-            Customer.company_name_en, Customer.country_id
+            Customer.company_name_en
         ).all()
-        existing = {(c.company_name_en.strip().lower(), c.country_id) for c in existing_customers}
+        existing = {c.company_name_en.strip().lower() for c in existing_customers}
 
     # 4. 逐行处理
     imported = 0
@@ -481,8 +481,8 @@ def import_customers(
                 })
                 continue
 
-            # 去重
-            if skip_duplicates and (company_name.lower(), country_id) in existing:
+            # 去重（仅按公司名，同名公司无论来自哪个国家均视为重复）
+            if skip_duplicates and company_name.lower() in existing:
                 skipped += 1
                 results.append({
                     'row': row_num,
@@ -573,7 +573,7 @@ def import_customers(
 
             # 统计
             imported += 1
-            existing.add((company_name.lower(), country_id))
+            existing.add(company_name.lower())
             country_name = Country.query.get(country_id).name_en if country_id else 'Unknown'
             country_stats[country_name] = country_stats.get(country_name, 0) + 1
             grade_stats[grade] = grade_stats.get(grade, 0) + 1

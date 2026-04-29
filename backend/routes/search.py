@@ -36,20 +36,23 @@ def _db_save_partial_results(results: list, product_name: str, hs_code: str):
     """
     每国家完成后：立即将结果增量写入 customers 表（搜索来源标记）。
     这确保即使前端断线，结果也已永久保存。
+    返回 (new_count, existing_count)
     """
     if not results:
-        return 0
+        return 0, 0
     from ..models import Customer, Country
     imported = 0
+    existing = 0
     for r in results:
         name = (r.get('company_name_en') or r.get('company_name') or '').strip()
         if not name:
             continue
-        # 查重
+        # 查重（仅按公司名，不按国家；同一公司名跨国家也视为重复）
         exists = Customer.query.filter(
             db.func.lower(Customer.company_name_en) == name.lower()
         ).first()
         if exists:
+            existing += 1
             continue
         # 国家解析
         country_str = r.get('country', '')
@@ -80,7 +83,7 @@ def _db_save_partial_results(results: list, product_name: str, hs_code: str):
             imported += 1
         except Exception:
             db.session.rollback()
-    return imported
+    return imported, existing
 
 
 def _run_search_async(task_id, countries, search_type, product_name=None, hs_code=None, local_search=True):
@@ -123,9 +126,10 @@ def _run_search_async(task_id, countries, search_type, product_name=None, hs_cod
             _country_search_completed[session_key].add(country_name)
 
             # 增量写入 DB（每国家完成后立即保存）
-            imported = 0
+            new_count = 0
+            existing_count = 0
             if country_results:
-                imported = _db_save_partial_results(country_results, product_name, hs_code)
+                new_count, existing_count = _db_save_partial_results(country_results, product_name, hs_code)
 
             # 更新 DB 中的 session 状态
             try:
@@ -134,8 +138,9 @@ def _run_search_async(task_id, countries, search_type, product_name=None, hs_cod
                     completed_list = list(_country_search_completed[session_key])
                     s.completed_countries = completed_list
                     s.current_country = country_name
-                    s.result_count = (s.result_count or 0) + (len(country_results) if country_results else 0)
-                    s.imported_count = (s.imported_count or 0) + imported
+                    # result_count 只统计新公司（不重复），与 imported_count 保持一致
+                    s.result_count = (s.result_count or 0) + new_count
+                    s.imported_count = (s.imported_count or 0) + new_count
                     _search_tasks[task_id]['partial_imported'] = s.imported_count
                     db.session.commit()
             except Exception as e:
@@ -158,7 +163,8 @@ def _run_search_async(task_id, countries, search_type, product_name=None, hs_cod
             if s:
                 s.status = 'COMPLETED'
                 s.completed_at = time.time()
-                s.result_count = len(unique_results)
+                # result_count 在 progress_callback 中已逐国累加（只计新公司）
+                # 这里直接使用 session 中已更新的 result_count（= imported_count）
                 db.session.commit()
         except Exception as e:
             print(f'[SearchSession] 标记完成失败: {e}')
@@ -168,7 +174,9 @@ def _run_search_async(task_id, countries, search_type, product_name=None, hs_cod
             'status': 'completed',
             'current_country': '已完成',
             'results': unique_results,
+            # results 在前端展示用（已去重），total 展示用
             'total': len(unique_results),
+            'partial_imported': _search_tasks[task_id].get('partial_imported', 0),
             'completed_at': time.time()
         })
     except Exception as e:
@@ -649,19 +657,22 @@ def import_search_results():
     if not items:
         return jsonify({'code': 400, 'message': '没有要导入的数据'}), 400
 
-    # 构建已存在客户名集合（用于快速去重）
+    # 构建已存在客户名集合（仅按公司名去重，同名公司跨国家视为重复）
     all_names = [item.get('company_name_en') or item.get('company_name', '') for item in items]
     all_names_lower = {n.strip().lower() for n in all_names if n.strip()}
 
-    existing = set()
+    existing = set()          # set of company_name_lower
+    existing_ids = {}         # company_name_lower → customer_id
     if all_names_lower:
         rows = db.session.query(
-            Customer.company_name_en, Customer.country_id, Customer.id
+            Customer.id, Customer.company_name_en
         ).filter(
             db.func.lower(Customer.company_name_en).in_(all_names_lower)
         ).all()
         for r in rows:
-            existing.add((r.company_name_en.strip().lower(), r.country_id, r.id))
+            key = r.company_name_en.strip().lower()
+            existing.add(key)
+            existing_ids[key] = r.id
 
     # 国家名缓存
     country_cache = {}
@@ -709,22 +720,16 @@ def import_search_results():
         # 国家解析
         country_id = _resolve_country(country_str)
 
-        # 去重检查（只看公司名，不强制要求国家相同）
-        dup_found = False
-        dup_id = None
-        for (exist_name_lower, exist_country_id, exist_id) in existing:
-            if exist_name_lower == company_name.lower():
-                dup_found = True
-                dup_id = exist_id
-                break
-        if dup_found:
+        # 去重检查（仅按公司名，同名公司跨国家视为重复）
+        name_key = company_name.lower()
+        if name_key in existing:
             skipped += 1
             results.append({
                 'company_name_en': company_name,
                 'country': country_str,
                 'status': 'skipped',
-                'reason': '客户已在库中',
-                'customer_id': dup_id,
+                'reason': '客户已在库中（同名公司，无论国家）',
+                'customer_id': existing_ids.get(name_key),
             })
             continue
 
@@ -763,7 +768,9 @@ def import_search_results():
             db.session.commit()
 
             imported += 1
-            existing.add((company_name.lower(), country_id, customer.id))
+            name_key = company_name.lower()
+            existing.add(name_key)
+            existing_ids[name_key] = customer.id
             results.append({
                 'company_name_en': company_name,
                 'country': country_str,
