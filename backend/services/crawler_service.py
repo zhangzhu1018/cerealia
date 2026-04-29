@@ -197,8 +197,6 @@ _CAVIAR_COUNTRIES = [
     ('Tuvalu',       3, 'caviar',           ['caviar importer']),
     ('Kyrgyzstan',   3, 'кызыл балык',      ['caviar importer']),
     ('Tajikistan',   3, 'кавиар',           ['caviar importer']),
-    ('Mongolia',     3, 'caviar',           ['caviar importer']),
-    ('Afghanistan',  3, 'caviar',           ['caviar importer']),
 ]
 
 

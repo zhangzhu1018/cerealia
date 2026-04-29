@@ -76,7 +76,8 @@ def _db_save_partial_results(results: list, product_name: str, hs_code: str):
                 priority_level='MEDIUM',
                 notes=f'来源：AI搜索（{r.get("source","ai_search")}）\n描述：{r.get("snippet","")}',
                 search_source='ai_search',
-                is_collected=False,  # 搜索结果默认不入客户池，待用户筛选后批量导入
+                is_collected=True,    # 搜索结果直接入客户池（去重后入库，用户可自行删减）
+                is_verified=False,    # 标记为 AI 搜索结果，待人工核实
             )
             db.session.add(customer)
             db.session.commit()
