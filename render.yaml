@@ -15,7 +15,10 @@ services:
     name: caviar-crm-backend
     plan: free
     region: oregon
-    dockerfilePath: ./backend/Dockerfile
+    runtime: python
+    pythonVersion: "3.11"
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn "backend.app:app" --bind 0.0.0.0:$PORT --workers 2
     healthCheckPath: /api/health
     envVars:
       - key: FLASK_ENV
@@ -27,9 +30,6 @@ services:
         fromDatabase:
           name: caviar-crm-db
           property: connectionString
-      # Render 提供 PORT，Dockerfile 读取它
-      - key: PORT
-        value: 10000
       # DeepSeek AI（请在 Render Dashboard 中填入你的 Key）
       - key: DEEPSEEK_API_KEY
         sync: false
