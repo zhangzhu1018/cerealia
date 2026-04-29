@@ -33,7 +33,7 @@ const ScoreDims = ({ score }) => {
 }
 
 // 搜索进度条（搜索中）
-const SearchProgress = ({ seconds, currentCountry }) => {
+const SearchProgress = ({ seconds, currentCountry, partialImportedCount }) => {
   if (!seconds) return null
   return (
     <div className="card py-4">
@@ -46,7 +46,14 @@ const SearchProgress = ({ seconds, currentCountry }) => {
             '正在搜索目标客户...'
           )}
         </span>
-        <span>{seconds}s</span>
+        <span className="flex items-center gap-3">
+          {partialImportedCount > 0 && (
+            <span className="text-emerald-400 text-xs">
+              📥 已入库 {partialImportedCount} 家
+            </span>
+          )}
+          <span>{seconds}s</span>
+        </span>
       </div>
       <div className="w-full bg-caviar-dark rounded-full h-1.5 overflow-hidden">
         <div
@@ -55,7 +62,7 @@ const SearchProgress = ({ seconds, currentCountry }) => {
         />
       </div>
       <p className="text-[11px] text-caviar-muted mt-1.5">
-        🌐 全球 150+ 国家搜索（Tier 1 高活跃→Tier 2→Tier 3 低活跃），预计需要 15-60 分钟，关闭页面后结果可在历史记录中查看
+        🌐 全球 150+ 国家搜索（Tier 1 高活跃→Tier 2→Tier 3 低活跃），每国家完成即自动入库，关闭页面后可随时返回继续
       </p>
     </div>
   )
@@ -131,6 +138,7 @@ export default function SearchRunner({
   currentCountry,
   searchProgress,
   onResetProgress,
+  partialImportedCount = 0,  // 已实时导入到客户池的数量
 }) {
   const [keyword, setKeyword] = useState('')
   const [hsCode, setHsCode] = useState('')
@@ -253,7 +261,7 @@ export default function SearchRunner({
       <CountryProgress searchProgress={searchProgress || {}} onReset={onResetProgress} />
 
       {/* 搜索进度条（搜索中） */}
-      <SearchProgress seconds={progress} currentCountry={currentCountry} />
+      <SearchProgress seconds={progress} currentCountry={currentCountry} partialImportedCount={partialImportedCount} />
 
       {/* 全部国家搜完了 */}
       {allDone && !loading && !results.length && (

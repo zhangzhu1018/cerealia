@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import SearchRunner from '../components/SearchRunner'
-import { runSearch, createCustomer, calculateScore, getCustomers, importSearchResults, resetSearchProgress } from '../api'
+import { runSearch, createCustomer, calculateScore, getCustomers, importSearchResults, resetSearchProgress, checkResume } from '../api'
 
 export default function SearchPage() {
   const [loading, setLoading] = useState(false)
@@ -18,6 +18,12 @@ export default function SearchPage() {
   const [searchProgress, setSearchProgress] = useState({ completed_countries: [], pending_countries: [] })
   // 当前搜索关键词（用于重置时传递正确key）
   const [currentKeyword, setCurrentKeyword] = useState('')
+  // 断线恢复：上次任务的 task_id（持久化到 localStorage）
+  const [lastTaskId, setLastTaskId] = useState(() => localStorage.getItem('search_task_id') || '')
+  // 断线恢复：检测到的可恢复会话
+  const [resumableSession, setResumableSession] = useState(null) // { task_id, reason, message, completed_countries, ... }
+  // 已导入的客户数量（用于显示实时进度）
+  const [partialImportedCount, setPartialImportedCount] = useState(0)
 
   // ── 轮询控制 refs（避免闭包陷阱）──────────────────────────────────────────
   const pollingRef = useRef(null)   // { taskId, abortController, seconds, tick }
@@ -34,7 +40,31 @@ export default function SearchPage() {
     }
   }, [])
 
-  const stopPolling = useCallback(() => {
+  // ── 页面加载时：自动检测是否有可恢复的搜索会话 ───────────────────────────
+  useEffect(() => {
+    // 从 localStorage 读取上次关键词
+    const savedKeyword = localStorage.getItem('search_keyword') || ''
+    const savedHsCode = localStorage.getItem('search_hscode') || ''
+    if (savedKeyword) setCurrentKeyword(savedKeyword)
+
+    if (!savedKeyword) return
+
+    checkResume({ product_name: savedKeyword, hs_code: savedHsCode })
+      .then(res => {
+        const data = res?.data?.data
+        if (data?.resumable) {
+          setResumableSession(data)
+          // 更新进度显示
+          setSearchProgress({
+            completed_countries: data.completed_countries || [],
+            pending_countries: data.pending_countries || [],
+          })
+          if (data.current_country) setCurrentCountry(data.current_country)
+          if (data.imported_count) setPartialImportedCount(data.imported_count)
+        }
+      })
+      .catch(() => {})
+  }, [])
     if (pollingRef.current) {
       pollingRef.current.stopped.value = true
       pollingRef.current.getAbort()?.abort()
@@ -56,14 +86,22 @@ export default function SearchPage() {
     setSelectedItems(new Set())
     setBatchImportResult(null)
     setCurrentCountry('')
-    // 保存当前关键词（用于重置）
+    setResumableSession(null)
+    setPartialImportedCount(0)
+
+    // 保存当前关键词（用于重置 + localStorage 持久化）
     const kw = params.keyword || params.product_name || ''
+    const hs = params.hs_code || ''
     setCurrentKeyword(kw)
+    localStorage.setItem('search_keyword', kw)
+    localStorage.setItem('search_hscode', hs)
 
     try {
       const res = await runSearch({
         product_name: params.keyword || params.product_name || '',
         hs_code: params.hs_code || '',
+        // 传递上次 task_id，支持断线恢复（后端会检测 DB 中的 RUNNING 会话并自动重启线程）
+        task_id: lastTaskId || undefined,
       })
 
       const taskData = res?.data || res
@@ -84,6 +122,10 @@ export default function SearchPage() {
         return
       }
 
+      // 持久化 task_id 到 localStorage（断线后仍可恢复）
+      setLastTaskId(taskId)
+      localStorage.setItem('search_task_id', taskId)
+
       // 更新前端显示的待搜国家
       if (taskData?.pending_countries) {
         setSearchProgress({
@@ -101,6 +143,16 @@ export default function SearchPage() {
 
       // ── 保存到 ref（供外部 cleanup 访问）─────────────────────────────────────
       pollingRef.current = { taskId, stopped, getAbort: () => abortController }
+
+      // ── 如果是恢复搜索，先显示已有进度 ────────────────────────────────────
+      if (taskData?.resumed) {
+        setCurrentCountry(taskData.current_country || '')
+        setPartialImportedCount(taskData.imported_count || 0)
+        setSearchProgress({
+          completed_countries: taskData.completed_countries || [],
+          pending_countries: taskData.pending_countries || [],
+        })
+      }
 
       // ── 计时器 ──────────────────────────────────────────────────────────────
       tick = setInterval(() => {
@@ -127,6 +179,7 @@ export default function SearchPage() {
           const statusData = await statusRes.json()
           const status = statusData?.data
 
+          // 实时更新国家进度
           if (status?.current_country) {
             setCurrentCountry(status.current_country)
             setSearchProgress(prev => {
@@ -136,12 +189,16 @@ export default function SearchPage() {
               return { completed_countries: [...done], pending_countries: pending }
             })
           }
+          // 实时更新已导入数（DB 轮询时也要更新）
+          if (status?.imported_count !== undefined) {
+            setPartialImportedCount(status.imported_count)
+          }
           if (status?.status === 'completed') {
             data = status.results || []
             break
           }
           if (status?.status === 'failed') {
-            throw new Error(status.error || '搜索失败')
+            throw new Error(status.error || status.error_message || '搜索失败')
           }
           if (i > 0 && i % 30 === 0) {
             console.log(`[SearchPage] 进行中 ${i}s，已完成 ${status?.country_index || 0}/${status?.total_countries || '?'} 个国家`)
@@ -161,9 +218,18 @@ export default function SearchPage() {
       // 如果被停止，安静退出，不更新结果
       if (stopped.value) return
 
+      // 搜索完成 → 清除 localStorage 中的 task_id（下次搜索会生成新 ID）
+      setLastTaskId('')
+      localStorage.removeItem('search_task_id')
+
       setSearchSeconds(0)
       if (!data.length) {
-        setError(`搜索进行中（${seconds}秒），可关闭页面稍后从历史记录查看结果`)
+        // 有 partialImportedCount → 说明中途结果已入库
+        if (partialImportedCount > 0) {
+          setError(`已导入 ${partialImportedCount} 家客户到客户池，搜索继续中...关闭页面后数据已保存，可随时返回继续`)
+        } else {
+          setError(`搜索进行中（${seconds}秒），可关闭页面稍后从历史记录查看结果`)
+        }
         return
       }
 
@@ -377,9 +443,44 @@ export default function SearchPage() {
 
   return (
     <div className="space-y-6">
+      {/* ── 断线恢复 Banner ─────────────────────────────────────────── */}
+      {resumableSession && !loading && (
+        <div className="card border border-caviar-gold/40 bg-caviar-gold/5">
+          <div className="flex items-start gap-3">
+            <div className="text-2xl flex-shrink-0">🔄</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-caviar-gold font-medium text-sm mb-1">
+                检测到进行中的搜索会话
+              </p>
+              <p className="text-caviar-muted text-xs mb-3">
+                {resumableSession.message}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => {
+                    setResumableSession(null)
+                    // 用上次的关键词触发搜索（会自动传入 lastTaskId 触发后端恢复）
+                    handleSearch({ keyword: resumableSession.product_name || currentKeyword, hs_code: resumableSession.hs_code || '' })
+                  }}
+                  className="btn-primary text-sm"
+                >
+                  🔍 继续搜索（剩余 {resumableSession.pending_countries?.length || 0} 个国家）
+                </button>
+                <button
+                  onClick={() => setResumableSession(null)}
+                  className="btn-secondary text-sm"
+                >
+                  忽略，开始新搜索
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
-        <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-lg text-red-400 text-sm">
-          {error}
+        <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-lg text-red-400 text-sm flex items-center gap-2">
+          <span>{error}</span>
         </div>
       )}
 
@@ -402,6 +503,7 @@ export default function SearchPage() {
         currentCountry={currentCountry}
         searchProgress={searchProgress}
         onResetProgress={handleResetProgress}
+        partialImportedCount={partialImportedCount}
       />
     </div>
   )

@@ -417,7 +417,7 @@ class CustomerSearchController:
             print(f'[AISearch]   → {c} 完成，找到 {len(results)} 条结果')
 
             if progress_callback:
-                progress_callback(i + 1, total_countries, c)
+                progress_callback(i + 1, total_countries, c, country_results=results)
 
         return all_results
 

@@ -366,3 +366,47 @@ customer_products = db.Table(
     db.Column('notes', db.Text),
     db.Column('created_at', db.DateTime, default=datetime.utcnow),
 )
+
+
+# ─── 搜索会话（持久化，搜索中途中断可恢复）────────────────────────────────────
+class SearchSession(db.Model):
+    """搜索会话表：持久化记录搜索任务状态，支持断线恢复"""
+    __tablename__ = 'search_sessions'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    task_id = db.Column(db.String(16), unique=True, nullable=False, index=True)  # uuid 前8位
+    product_name = db.Column(db.String(200), default='')
+    hs_code = db.Column(db.String(20), default='')
+    status = db.Column(
+        db.Enum('RUNNING', 'COMPLETED', 'FAILED', name='search_session_status_enum'),
+        default='RUNNING'
+    )
+    # 已完成的国家列表（JSON 数组）
+    completed_countries = db.Column(db.JSON, default=list)
+    # 当前正在搜索的国家
+    current_country = db.Column(db.String(100), default='')
+    # 搜索到的公司数量
+    result_count = db.Column(db.Integer, default=0)
+    # 已导入客户池的数量
+    imported_count = db.Column(db.Integer, default=0)
+    # 错误信息
+    error_message = db.Column(db.Text, default='')
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'task_id': self.task_id,
+            'product_name': self.product_name,
+            'hs_code': self.hs_code,
+            'status': self.status,
+            'completed_countries': self.completed_countries or [],
+            'current_country': self.current_country,
+            'result_count': self.result_count,
+            'imported_count': self.imported_count,
+            'error_message': self.error_message,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+        }

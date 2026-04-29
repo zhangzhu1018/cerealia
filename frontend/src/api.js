@@ -103,6 +103,8 @@ export const importSearchResults = (items) => api.post('/search/import-batch', {
 export const getSearchProgress = (params) => api.get('/search/progress', { params })
 // 重置搜索进度（清除已完成记录）
 export const resetSearchProgress = (data) => api.post('/search/reset', data)
+// 检查是否有可恢复的搜索会话（断线恢复）
+export const checkResume = (params) => api.get('/search/resume', { params })
 
 // ---------- 操作日志 ----------
 // getActivities：GET /activities → { code, data: { items, total, pages } }
