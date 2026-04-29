@@ -25,11 +25,10 @@ export default function SearchPage() {
   // ── 轮询 effect：组件卸载时自动停止 ───────────────────────────────────────
   useEffect(() => {
     return () => {
-      // 组件卸载时强制停止所有轮询
+      // 组件卸载时：停止计时器 + 标记 stopped → 循环下次迭代发现即退出
       if (pollingRef.current) {
-        pollingRef.current._stopped = true
-        pollingRef.current.abortController?.abort()
-        if (pollingRef.current.tick) clearInterval(pollingRef.current.tick)
+        pollingRef.current.stopped.value = true
+        pollingRef.current.getAbort()?.abort()
         pollingRef.current = null
       }
     }
@@ -37,9 +36,8 @@ export default function SearchPage() {
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
-      pollingRef.current._stopped = true
-      pollingRef.current.abortController?.abort()
-      if (pollingRef.current.tick) clearInterval(pollingRef.current.tick)
+      pollingRef.current.stopped.value = true
+      pollingRef.current.getAbort()?.abort()
       pollingRef.current = null
     }
     setSearchSeconds(0)
@@ -94,93 +92,80 @@ export default function SearchPage() {
         })
       }
 
-      // ── 初始化轮询状态 ───────────────────────────────────────────────────
-      const abortController = new AbortController()
+      // ── 轮询控制状态 ─────────────────────────────────────────────────────────
+      const stopped = { value: false }
+      let tick = null
+      let abortController = null
       let seconds = 0
-      const tick = setInterval(() => {
+      let data = []
+
+      // ── 保存到 ref（供外部 cleanup 访问）─────────────────────────────────────
+      pollingRef.current = { taskId, stopped, getAbort: () => abortController }
+
+      // ── 计时器 ──────────────────────────────────────────────────────────────
+      tick = setInterval(() => {
         seconds += 1
         setSearchSeconds(seconds)
       }, 1000)
 
-      pollingRef.current = { taskId, abortController, tick, _stopped: false }
+      // ── 轮询循环（最多 2 小时，随时可被 stopped.value == true 打断）────────────
+      outer:
+      for (let i = 0; i < 7200; i++) {
+        // ★ 每个循环开始前必须检查停止标记
+        if (stopped.value) break
 
-      let data = []
-      let pollingError = null
+        // 等待 1 秒（可被组件卸载打断）
+        try {
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        } catch (_) { break }
+        if (stopped.value) break
 
-      // ── 轮询循环：最多 2 小时，React 卸载或 stopPolling 可中断 ─────────────
-      try {
-        for (let i = 0; i < 7200; i++) {
-          // 检查是否已停止（React 卸载或用户取消）
-          if (pollingRef.current?._stopped || abortController.signal.aborted) {
-            pollingError = null   // 非错误，安静退出
+        // 拉取状态
+        try {
+          const statusRes = await fetch(`/api/search/status/${taskId}`)
+          if (stopped.value) break
+          const statusData = await statusRes.json()
+          const status = statusData?.data
+
+          if (status?.current_country) {
+            setCurrentCountry(status.current_country)
+            setSearchProgress(prev => {
+              const done = new Set(prev.completed_countries)
+              done.add(status.current_country)
+              const pending = prev.pending_countries.filter(c => c !== status.current_country)
+              return { completed_countries: [...done], pending_countries: pending }
+            })
+          }
+          if (status?.status === 'completed') {
+            data = status.results || []
             break
           }
-
-          await new Promise((resolve, reject) => {
-            const t = setTimeout(() => {
-              // 再次检查停止标记（等待期间可能被 stop）
-              if (pollingRef.current?._stopped || abortController.signal.aborted) {
-                reject(new Error('CANCELLED'))
-              } else {
-                resolve()
-              }
-            }, 1000)
-            abortController.signal.addEventListener('abort', () => {
-              clearTimeout(t)
-              reject(new Error('CANCELLED'))
-            })
-          })
-
-          try {
-            const statusRes = await fetch(`/api/search/status/${taskId}`, {
-              signal: abortController.signal,
-            })
-            const statusData = await statusRes.json()
-            const status = statusData?.data
-
-            if (status?.current_country) {
-              setCurrentCountry(status.current_country)
-              setSearchProgress(prev => {
-                const done = new Set(prev.completed_countries)
-                done.add(status.current_country)
-                const pending = prev.pending_countries.filter(c => c !== status.current_country)
-                return { completed_countries: [...done], pending_countries: pending }
-              })
-            }
-            if (status?.status === 'completed') {
-              data = status.results || []
-              break
-            }
-            if (status?.status === 'failed') {
-              throw new Error(status.error || '搜索失败')
-            }
-            // 每 30 秒打印一次进度提示
-            if (i > 0 && i % 30 === 0) {
-              console.log(`[SearchPage] 进行中 ${i}s，已完成 ${status?.country_index || 0}/${status?.total_countries || '?'} 个国家`)
-            }
-          } catch (fetchErr) {
-            if (fetchErr.message === 'CANCELLED') {
-              pollingError = null
-              break
-            }
-            throw fetchErr
+          if (status?.status === 'failed') {
+            throw new Error(status.error || '搜索失败')
           }
+          if (i > 0 && i % 30 === 0) {
+            console.log(`[SearchPage] 进行中 ${i}s，已完成 ${status?.country_index || 0}/${status?.total_countries || '?'} 个国家`)
+          }
+        } catch (err) {
+          if (stopped.value) break
+          setError(err.message || '网络错误')
+          break
         }
-
-        if (!data.length && !pollingError && !pollingRef.current?._stopped) {
-          throw new Error(`搜索进行中（${seconds}秒），可关闭页面稍后从历史记录查看结果`)
-        }
-      } finally {
-        // 清理：停止计时器，移除 pollingRef
-        if (pollingRef.current?.taskId === taskId) {
-          if (pollingRef.current.tick) clearInterval(pollingRef.current.tick)
-          pollingRef.current = null
-        }
-        setSearchSeconds(0)
       }
 
-      // 如果被停止（用户取消或组件卸载），不再更新结果
-      if (!data.length) return
+      // ── 清理本地计时器 ───────────────────────────────────────────────────────
+      if (tick) { clearInterval(tick); tick = null }
+      // 防止 useEffect cleanup 与 finally 重复清理
+      if (pollingRef.current?.taskId === taskId) { pollingRef.current = null }
+
+      // 如果被停止，安静退出，不更新结果
+      if (stopped.value) return
+
+      setSearchSeconds(0)
+      if (!data.length) {
+        setError(`搜索进行中（${seconds}秒），可关闭页面稍后从历史记录查看结果`)
+        return
+      }
 
       setResults(data)
 
