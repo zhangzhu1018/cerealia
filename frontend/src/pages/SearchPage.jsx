@@ -73,8 +73,8 @@ export default function SearchPage() {
 
       let data = []
       try {
-        // 轮询最多 10 分钟（600 次 × 1 秒）
-        for (let i = 0; i < 600; i++) {
+        // 轮询最多 2 小时（150+ 国家 × 每国家约 5-8 秒搜索时间）
+        for (let i = 0; i < 7200; i++) {
           await new Promise(r => setTimeout(r, 1000))
           const statusRes = await fetch(`/api/search/status/${taskId}`)
           const statusData = await statusRes.json()
@@ -96,6 +96,10 @@ export default function SearchPage() {
           if (status?.status === 'failed') {
             throw new Error(status.error || '搜索失败')
           }
+          // 每 30 秒打印一次进度提示
+          if (i > 0 && i % 30 === 0) {
+            console.log(`[SearchPage] 进行中 ${i}s，已完成 ${status?.country_index || 0}/${status?.total_countries || '?'} 个国家`)
+          }
         }
         if (!data.length) {
           throw new Error(`搜索进行中（${seconds}秒），可关闭页面稍后从历史记录查看结果`)
@@ -106,6 +110,30 @@ export default function SearchPage() {
       }
 
       setResults(data)
+
+      // ── 自动导入全部结果到客户池（后台静默执行）────────────────────────────
+      try {
+        const importRes = await importSearchResults(data)
+        const importResult = importRes?.data || importRes
+        const importedNames = new Set(
+          (importResult.results || [])
+            .filter(r => r.status === 'imported')
+            .map(r => r.company_name_en)
+        )
+        if (importedNames.size > 0) {
+          setAddedIds(prev => new Set([...prev, ...importedNames]))
+        }
+        // 显示导入结果提示（不打断流程）
+        if (importResult.imported > 0 || importResult.skipped > 0) {
+          setBatchImportResult({
+            imported: importResult.imported || 0,
+            skipped: importResult.skipped || 0,
+            failed: importResult.failed || 0,
+          })
+        }
+      } catch (_) {
+        // 导入失败不影响评分，继续执行
+      }
 
       // 前 5 条自动评分
       const quickBatch = data.slice(0, 5).map((item, idx) => ({

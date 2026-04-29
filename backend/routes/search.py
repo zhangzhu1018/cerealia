@@ -1,11 +1,14 @@
 """
 客户搜索路由
-POST /search/run          - 触发爬虫搜索
+POST /search/run          - 触发爬虫搜索（全球 150+ 国家，支持本地语言二次搜索）
 POST /search/run-by-name  - 按公司名搜索
 GET  /search/status/<task_id> - 查询搜索任务状态
+GET  /search/countries    - 获取全球可搜索国家完整列表（按活跃度排序）
+GET  /search/progress     - 查询搜索进度
+POST /search/reset        - 重置搜索进度
 """
 from flask import Blueprint, request, jsonify
-from ..services.crawler_service import CustomerSearchController
+from ..services.crawler_service import CustomerSearchController, _CAVIAR_COUNTRIES
 import threading
 import uuid
 import time
@@ -19,14 +22,21 @@ _search_tasks = {}
 # key = (product_name, hs_code)  →  set of completed_country_names
 _country_search_completed = {}
 
+# ─── 全部国家列表（Tier 1 高活跃 → Tier 2 → Tier 3 低活跃）──────────────────
+_ALL_COUNTRIES = [c[0] for c in _CAVIAR_COUNTRIES]
+# 映射：国家名 → tier
+_COUNTRY_TIER_MAP = {c[0]: c[1] for c in _CAVIAR_COUNTRIES}
+# 映射：国家名 → 本地语言关键词
+_COUNTRY_LOCAL_MAP = {c[0]: c[2] for c in _CAVIAR_COUNTRIES}
 
-def _run_search_async(task_id, countries, search_type, product_name=None, hs_code=None):
+
+def _run_search_async(task_id, countries, search_type, product_name=None, hs_code=None, local_search=True):
     """后台执行搜索任务"""
     try:
         _search_tasks[task_id]['status'] = 'running'
         _search_tasks[task_id]['current_country'] = None
         _search_tasks[task_id]['country_index'] = 0
-        _search_tasks[task_id]['total_countries'] = len(countries) if countries else 9
+        _search_tasks[task_id]['total_countries'] = len(countries) if countries else len(_ALL_COUNTRIES)
 
         session_key = _search_tasks[task_id].get('session_key', (product_name or '', hs_code or ''))
 
@@ -44,7 +54,8 @@ def _run_search_async(task_id, countries, search_type, product_name=None, hs_cod
             countries=countries,
             product_name=product_name,
             hs_code=hs_code,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            local_search=local_search,
         )
         unique_results = controller.deduplicate(results)
         _search_tasks[task_id].update({
@@ -66,10 +77,11 @@ def run_search():
     """
     POST /search/run
     Body: {
-        countries: ["France", "USA", "Japan"],  (可选，默认全部)
-        task_id: str (可选，提供则复用)
-        product_name: str
-        hs_code: str
+        countries: ["France", "USA"],       (可选，默认全球全部 150+ 国家)
+        task_id: str,                       (可选，提供则复用已有任务)
+        product_name: str,
+        hs_code: str,
+        local_search: bool,                 (可选，默认 True；是否对 tier 1/2 国家进行本地语言二次搜索)
     }
 
     增量搜索逻辑：
@@ -82,6 +94,7 @@ def run_search():
     task_id = data.get('task_id')
     product_name = data.get('product_name') or ''
     hs_code = data.get('hs_code') or ''
+    local_search = data.get('local_search', True)  # 默认开启本地语言二次搜索
 
     # 复用已有任务
     if task_id and task_id in _search_tasks:
@@ -99,7 +112,8 @@ def run_search():
     # ── 增量搜索：过滤掉已搜过的国家 ──────────────────────────────────────
     session_key = (product_name.strip(), hs_code.strip())
     completed = _country_search_completed.get(session_key, set())
-    all_countries = countries or ['France', 'USA', 'Japan', 'Germany', 'UAE', 'Italy', 'Spain', 'Australia', 'UK']
+    # 默认全部国家（Tier 1 → Tier 2 → Tier 3）
+    all_countries = countries if (countries and len(countries) > 0) else list(_ALL_COUNTRIES)
     pending_countries = [c for c in all_countries if c not in completed]
 
     if not pending_countries:
@@ -108,9 +122,10 @@ def run_search():
             'data': {
                 'task_id': None,
                 'status': 'all_completed',
-                'message': f'该关键词已在所有国家搜索完毕，共 {len(completed)} 个国家',
+                'message': f'该关键词已在所有 {len(completed)} 个国家搜索完毕（含本地语言二次搜索）',
                 'completed_countries': sorted(completed),
                 'pending_countries': [],
+                'total_countries': len(all_countries),
             }
         }), 200
 
@@ -120,19 +135,20 @@ def run_search():
     task_id = str(uuid.uuid4())[:8]
     _search_tasks[task_id] = {
         'status': 'pending',
-        'countries': pending_countries,    # 只包含待搜国家
-        'all_countries': all_countries,    # 原始全部国家
+        'countries': pending_countries,
+        'all_countries': all_countries,
         'search_type': 'incremental',
         'product_name': product_name,
         'hs_code': hs_code,
+        'local_search': local_search,
         'session_key': session_key,
         'created_at': time.time(),
     }
 
-    # 后台线程执行（避免阻塞 API 响应）
+    # 后台线程执行
     thread = threading.Thread(
         target=_run_search_async,
-        args=(task_id, pending_countries, 'incremental', product_name, hs_code),
+        args=(task_id, pending_countries, 'incremental', product_name, hs_code, local_search),
         daemon=True
     )
     thread.start()
@@ -142,10 +158,16 @@ def run_search():
         'data': {
             'task_id': task_id,
             'status': 'pending',
-            'message': f'搜索任务已创建（{len(pending_countries)} 个待搜国家，跳过 {skipped_count} 个已搜国家）',
+            'message': (
+                f'全球搜索任务已创建：{len(pending_countries)} 个待搜国家，'
+                f'跳过 {skipped_count} 个已搜国家'
+                f'{"" if local_search else "（本地语言搜索已关闭）"}'
+            ),
             'pending_countries': pending_countries,
             'skipped_countries': sorted(completed),
             'skipped_count': skipped_count,
+            'total_countries': len(all_countries),
+            'local_search_enabled': local_search,
         }
     }), 202
 
@@ -212,14 +234,34 @@ def get_task_status(task_id):
 
 @bp.route('/countries', methods=['GET'])
 def list_searchable_countries():
-    """GET /search/countries - 获取可搜索国家列表"""
+    """
+    GET /search/countries - 获取全球可搜索国家完整列表
+    返回全部 150+ 国家，按鱼子酱活跃度 Tier 1 → Tier 2 → Tier 3 排序
+    """
+    countries_data = [
+        {
+            'name': c[0],
+            'tier': c[1],
+            'tier_label': '高活跃市场' if c[1] == 1 else ('中活跃市场' if c[1] == 2 else '低活跃/偏远'),
+            'local_keyword': c[2],
+        }
+        for c in _CAVIAR_COUNTRIES
+    ]
+    tier1 = [c for c in countries_data if c['tier'] == 1]
+    tier2 = [c for c in countries_data if c['tier'] == 2]
+    tier3 = [c for c in countries_data if c['tier'] == 3]
     return jsonify({
         'code': 0,
-        'data': [
-            'France', 'USA', 'Japan', 'Germany', 'UAE', 'Italy',
-            'Spain', 'Australia', 'UK', 'Canada', 'Singapore',
-            'Hong Kong', 'South Korea', 'Netherlands', 'Switzerland'
-        ]
+        'data': {
+            'total': len(countries_data),
+            'tier1_count': len(tier1),
+            'tier2_count': len(tier2),
+            'tier3_count': len(tier3),
+            'tier1': [c['name'] for c in tier1],
+            'tier2': [c['name'] for c in tier2],
+            'tier3': [c['name'] for c in tier3],
+            'detail': countries_data,
+        }
     })
 
 
@@ -227,15 +269,23 @@ def list_searchable_countries():
 def get_search_progress():
     """
     GET /search/progress?product_name=...&hs_code=...
-    返回指定关键词下各国家的搜索完成状态
+    返回指定关键词下各国家的搜索完成状态（全球 150+ 国家）
     """
     product_name = request.args.get('product_name', '').strip()
     hs_code = request.args.get('hs_code', '').strip()
     session_key = (product_name, hs_code)
     completed = _country_search_completed.get(session_key, set())
 
-    all_countries = ['France', 'USA', 'Japan', 'Germany', 'UAE', 'Italy', 'Spain', 'Australia', 'UK']
+    all_countries = list(_ALL_COUNTRIES)
     pending = [c for c in all_countries if c not in completed]
+
+    # tier 统计
+    tier1_total = sum(1 for c in all_countries if _COUNTRY_TIER_MAP.get(c) == 1)
+    tier1_done = sum(1 for c in completed if _COUNTRY_TIER_MAP.get(c) == 1)
+    tier2_total = sum(1 for c in all_countries if _COUNTRY_TIER_MAP.get(c) == 2)
+    tier2_done = sum(1 for c in completed if _COUNTRY_TIER_MAP.get(c) == 2)
+    tier3_total = sum(1 for c in all_countries if _COUNTRY_TIER_MAP.get(c) == 3)
+    tier3_done = sum(1 for c in completed if _COUNTRY_TIER_MAP.get(c) == 3)
 
     return jsonify({
         'code': 0,
@@ -247,6 +297,11 @@ def get_search_progress():
             'total': len(all_countries),
             'completed_count': len(completed),
             'pending_count': len(pending),
+            'tier_summary': {
+                'tier1': {'total': tier1_total, 'done': tier1_done},
+                'tier2': {'total': tier2_total, 'done': tier2_done},
+                'tier3': {'total': tier3_total, 'done': tier3_done},
+            }
         }
     })
 

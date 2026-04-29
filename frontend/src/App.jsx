@@ -8,6 +8,7 @@ import CustomerImportPage from './pages/CustomerImportPage'
 import EmailPage from './pages/EmailPage'
 import EmailSettingsPage from './pages/EmailSettingsPage'
 import SearchPage from './pages/SearchPage'
+import ScoringPage from './pages/ScoringPage'
 import ActivitiesPage from './pages/ActivitiesPage'
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/emails" element={<EmailPage />} />
           <Route path="/email-settings" element={<EmailSettingsPage />} />
           <Route path="/search" element={<SearchPage />} />
+          <Route path="/scoring" element={<ScoringPage />} />
           <Route path="/activities" element={<ActivitiesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

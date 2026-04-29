@@ -19,6 +19,160 @@ bp = Blueprint('emails', __name__, url_prefix='/emails')
 _email_gen = EmailGenerator()
 
 
+@bp.route('/generate-batch-preview', methods=['POST'])
+def generate_batch_preview():
+    """
+    POST /emails/generate-batch-preview
+    批量生成邮件预览（DeepSeek AI，每家公司一封，不发送）
+
+    Body: {
+        customers: [{ company_name_en, country_name, email, contact_name }, ...],
+        additional_context: str (可选)
+    }
+
+    返回: {
+        previews: [{ company_name, country, email, subject, body_english, body_local, language }, ...],
+        total: int
+    }
+    """
+    data = request.get_json() or {}
+    customers = data.get('customers', [])
+    additional_context = data.get('additional_context')
+
+    if not customers:
+        return jsonify({'code': 400, 'message': '没有要生成的客户列表'}), 400
+
+    if len(customers) > 500:
+        return jsonify({'code': 400, 'message': '单次最多生成 500 封，请分批处理'}), 400
+
+    previews = _email_gen.generate_batch_preview(
+        companies=customers,
+        additional_context=additional_context,
+    )
+
+    return jsonify({
+        'code': 0,
+        'data': {
+            'previews': previews,
+            'total': len(previews),
+        }
+    })
+
+
+@bp.route('/confirm-batch-send', methods=['POST'])
+def confirm_batch_send():
+    """
+    POST /emails/confirm-batch-send
+    确认发送预览列表中的邮件（真实 SMTP 批量发送）
+
+    Body: {
+        previews: [{ company_name, email, subject, body_combined, language, customer_id }, ...],
+        sender_account_id: int (可选，不填则自动选)
+    }
+
+    返回: {
+        sent: int, failed: int, results: [...]
+    }
+    """
+    data = request.get_json() or {}
+    previews = data.get('previews', [])
+    sender_account_id = data.get('sender_account_id')
+
+    if not previews:
+        return jsonify({'code': 400, 'message': '没有要发送的邮件'}), 400
+
+    from ..models import Customer
+    sender = get_sender()
+
+    sent_count = 0
+    failed_count = 0
+    results = []
+
+    for item in previews:
+        email_addr = item.get('email', '').strip()
+        if not email_addr or '@' not in email_addr:
+            failed_count += 1
+            results.append({
+                'company_name': item.get('company_name', ''),
+                'email': email_addr,
+                'status': 'failed',
+                'reason': '邮箱地址无效',
+            })
+            continue
+
+        # 查找或关联客户
+        customer_id = item.get('customer_id')
+        if not customer_id:
+            # 尝试按邮箱查找
+            existing = Customer.query.filter(
+                db.func.lower(Customer.email) == email_addr.lower()
+            ).first()
+            if existing:
+                customer_id = existing.id
+
+        # 真实发送
+        success, err, acct_id = sender.send_one(
+            to_email=email_addr,
+            to_name=item.get('company_name', 'Partner'),
+            subject=item.get('subject', 'Partnership: Cerealia Caviar'),
+            body=item.get('body_combined', item.get('body_english', '')),
+            account_id=sender_account_id,
+        )
+
+        # 记录发送日志
+        log = EmailSentLog(
+            customer_id=customer_id,
+            sender_account_id=acct_id,
+            recipient_email=email_addr,
+            recipient_name=item.get('contact_name') or item.get('company_name', ''),
+            subject=item.get('subject', ''),
+            content=item.get('body_combined', item.get('body_english', '')),
+            language=item.get('language', 'en'),
+            send_status='SENT' if success else 'FAILED',
+            error_message=err if not success else None,
+            sent_at=datetime.utcnow() if success else None,
+        )
+        db.session.add(log)
+
+        if customer_id:
+            try:
+                customer = Customer.query.get(customer_id)
+                if customer:
+                    log_email_sent(
+                        customer_id=customer_id,
+                        company_name=customer.company_name_en,
+                        subject=item.get('subject', ''),
+                        recipient=email_addr,
+                    )
+            except Exception:
+                pass
+
+        if success:
+            sent_count += 1
+        else:
+            failed_count += 1
+
+        results.append({
+            'company_name': item.get('company_name', ''),
+            'email': email_addr,
+            'status': 'SENT' if success else 'FAILED',
+            'reason': err if not success else None,
+        })
+
+    db.session.commit()
+
+    return jsonify({
+        'code': 0,
+        'data': {
+            'sent': sent_count,
+            'failed': failed_count,
+            'total': len(previews),
+            'results': results,
+        },
+        'message': f'发送完成：成功 {sent_count} 封，失败 {failed_count} 封',
+    })
+
+
 @bp.route('/generate', methods=['POST'])
 def generate_email():
     """
@@ -49,19 +203,16 @@ def generate_email():
         company = data['company']
         preferred_language = data.get('preferred_language')
         customer_type = data.get('customer_type')
-        additional_context = None
+        additional_context = data.get('additional_context')
     else:
         return jsonify({'code': 400, 'message': '缺少 company 或 company_name 参数'}), 400
 
     result = _email_gen.generate_bilingual_email(
         company=company,
         customer_type=customer_type,
-        preferred_language=preferred_language
+        preferred_language=preferred_language,
+        additional_context=additional_context,
     )
-
-    # 如果提供了 additional_context，追加到邮件正文
-    if additional_context and additional_context.strip():
-        result['body_combined'] += f"\n\n---\n{additional_context.strip()}"
 
     # 如果提供了 customer_id，自动创建邮件发送记录（待发送状态）
     if data.get('customer_id'):

@@ -55,13 +55,13 @@ const SearchProgress = ({ seconds, currentCountry }) => {
         />
       </div>
       <p className="text-[11px] text-caviar-muted mt-1.5">
-        全球多国家搜索预计需要 5-10 分钟，关闭页面后结果可在历史记录中查看
+        🌐 全球 150+ 国家搜索（Tier 1 高活跃→Tier 2→Tier 3 低活跃），预计需要 15-60 分钟，关闭页面后结果可在历史记录中查看
       </p>
     </div>
   )
 }
 
-// 国家搜索进度状态条（搜索结束后显示）
+// 国家搜索进度状态条（搜索结束后显示，支持全球 150+ 国家）
 const CountryProgress = ({ searchProgress, onReset }) => {
   const { completed_countries = [], pending_countries = [] } = searchProgress
   const total = completed_countries.length + pending_countries.length
@@ -70,14 +70,17 @@ const CountryProgress = ({ searchProgress, onReset }) => {
   const pct = total > 0 ? (completed_countries.length / total) * 100 : 0
   const allDone = pending_countries.length === 0
 
+  // 实时计算速度（每分钟完成多少国家）
+  const recentCount = completed_countries.length
+
   return (
     <div className="card py-3">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-caviar-muted">
           {allDone ? (
-            <span className="text-emerald-400">✅ 全球搜索完毕</span>
+            <span className="text-emerald-400">✅ 全球搜索完毕（{completed_countries.length} 个国家）</span>
           ) : (
-            <>全球搜索进度 <span className="text-caviar-gold">{completed_countries.length}/{total}</span></>
+            <>🌍 全球搜索进度 <span className="text-caviar-gold">{completed_countries.length}/{total}</span></>
           )}
         </span>
         {allDone && (
@@ -98,23 +101,23 @@ const CountryProgress = ({ searchProgress, onReset }) => {
         />
       </div>
 
-      {/* 国家标签 */}
+      {/* 国家标签（按字母顺序或区域展示） */}
       <div className="flex flex-wrap gap-1.5">
         {completed_countries.map(c => (
           <span key={c} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/30 text-emerald-400 border border-emerald-700/30">
             ✅ {c}
           </span>
         ))}
-        {pending_countries.map(c => (
-          <span key={c} className="text-[10px] px-2 py-0.5 rounded-full bg-caviar-dark text-caviar-muted border border-caviar-sienna/20">
-            ◯ {c}
+        {pending_countries.length > 0 && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-caviar-dark text-caviar-muted border border-caviar-sienna/20">
+            +{pending_countries.length} 个待搜国家
           </span>
-        ))}
+        )}
       </div>
 
       {pending_countries.length > 0 && (
         <p className="text-[11px] text-caviar-muted mt-2">
-          下次搜索将只搜索 <span className="text-caviar-gold">{pending_countries.join('、')}</span>，已搜国家自动跳过
+          下次搜索将只搜索剩余 <span className="text-caviar-gold">{pending_countries.length}</span> 个国家，已搜国家自动跳过
         </p>
       )}
     </div>

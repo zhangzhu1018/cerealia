@@ -61,8 +61,11 @@ export const getScoreHistory = (customerId) => api.get(`/scoring/history/${custo
 
 // ---------- 邮件 ----------
 // generateEmail：POST /emails/generate → { code, data: { subject, body_combined, ... } }
-// 兼容前端 flat 参数 { company_name, customer_type, target_language }
 export const generateEmail = (data) => api.post('/emails/generate', data)
+// 批量生成预览（DeepSeek AI，每家公司一封）
+export const generateBatchPreview = (data) => api.post('/emails/generate-batch-preview', data)
+// 确认并批量发送（预览OK后一键发送）
+export const confirmBatchSend = (data) => api.post('/emails/confirm-batch-send', data)
 // getEmailHistory：GET /emails/history/:customerId → { code, data: [{ target_language, created_at, english_version }] }
 export const getEmailHistory = (customerId) => api.get(`/emails/history/${customerId}`)
 export const sendEmailNow = (data) => api.post('/emails/send-now', data)

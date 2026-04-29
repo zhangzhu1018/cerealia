@@ -13,6 +13,7 @@ const pageTitles = {
   '/emails':             { label: '邮件生成',  desc: '生成并发送邮件' },
   '/email-settings':     { label: '邮件管理',  desc: '发件账号与任务' },
   '/search':             { label: '客户搜索',  desc: '全网搜索潜在客户' },
+  '/scoring':            { label: '客户评分',  desc: 'AI 智能背调评分' },
   '/activities':         { label: '操作日志',  desc: '系统操作记录' },
 }
 
