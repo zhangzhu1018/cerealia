@@ -65,6 +65,9 @@ export default function SearchPage() {
       })
       .catch(() => {})
   }, [])
+
+  // ── 停止轮询 ──────────────────────────────────────────────────────────
+  const stopPolling = useCallback(() => {
     if (pollingRef.current) {
       pollingRef.current.stopped.value = true
       pollingRef.current.getAbort()?.abort()
