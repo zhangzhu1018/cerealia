@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import SearchRunner from '../components/SearchRunner'
 import { runSearch, createCustomer, calculateScore, getCustomers, importSearchResults, resetSearchProgress } from '../api'
 
@@ -19,12 +19,41 @@ export default function SearchPage() {
   // 当前搜索关键词（用于重置时传递正确key）
   const [currentKeyword, setCurrentKeyword] = useState('')
 
+  // ── 轮询控制 refs（避免闭包陷阱）──────────────────────────────────────────
+  const pollingRef = useRef(null)   // { taskId, abortController, seconds, tick }
+
+  // ── 轮询 effect：组件卸载时自动停止 ───────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      // 组件卸载时强制停止所有轮询
+      if (pollingRef.current) {
+        pollingRef.current._stopped = true
+        pollingRef.current.abortController?.abort()
+        if (pollingRef.current.tick) clearInterval(pollingRef.current.tick)
+        pollingRef.current = null
+      }
+    }
+  }, [])
+
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      pollingRef.current._stopped = true
+      pollingRef.current.abortController?.abort()
+      if (pollingRef.current.tick) clearInterval(pollingRef.current.tick)
+      pollingRef.current = null
+    }
+    setSearchSeconds(0)
+    setLoading(false)
+  }, [])
+
   const handleSearch = useCallback(async (params) => {
+    // ── 停掉上一个轮询 ─────────────────────────────────────────────────────
+    stopPolling()
+
     setLoading(true)
     setError('')
     setResults([])
     setScores({})
-    setSearchSeconds(0)
     setAddedIds(new Set())
     setSelectedItems(new Set())
     setBatchImportResult(null)
@@ -65,49 +94,93 @@ export default function SearchPage() {
         })
       }
 
+      // ── 初始化轮询状态 ───────────────────────────────────────────────────
+      const abortController = new AbortController()
       let seconds = 0
       const tick = setInterval(() => {
         seconds += 1
         setSearchSeconds(seconds)
       }, 1000)
 
+      pollingRef.current = { taskId, abortController, tick, _stopped: false }
+
       let data = []
+      let pollingError = null
+
+      // ── 轮询循环：最多 2 小时，React 卸载或 stopPolling 可中断 ─────────────
       try {
-        // 轮询最多 2 小时（150+ 国家 × 每国家约 5-8 秒搜索时间）
         for (let i = 0; i < 7200; i++) {
-          await new Promise(r => setTimeout(r, 1000))
-          const statusRes = await fetch(`/api/search/status/${taskId}`)
-          const statusData = await statusRes.json()
-          const status = statusData?.data
-          if (status?.current_country) {
-            setCurrentCountry(status.current_country)
-            // 实时更新已完成国家列表（后端每搜完一个国家就写入）
-            setSearchProgress(prev => {
-              const done = new Set(prev.completed_countries)
-              done.add(status.current_country)
-              const pending = prev.pending_countries.filter(c => c !== status.current_country)
-              return { completed_countries: [...done], pending_countries: pending }
-            })
-          }
-          if (status?.status === 'completed') {
-            data = status.results || []
+          // 检查是否已停止（React 卸载或用户取消）
+          if (pollingRef.current?._stopped || abortController.signal.aborted) {
+            pollingError = null   // 非错误，安静退出
             break
           }
-          if (status?.status === 'failed') {
-            throw new Error(status.error || '搜索失败')
-          }
-          // 每 30 秒打印一次进度提示
-          if (i > 0 && i % 30 === 0) {
-            console.log(`[SearchPage] 进行中 ${i}s，已完成 ${status?.country_index || 0}/${status?.total_countries || '?'} 个国家`)
+
+          await new Promise((resolve, reject) => {
+            const t = setTimeout(() => {
+              // 再次检查停止标记（等待期间可能被 stop）
+              if (pollingRef.current?._stopped || abortController.signal.aborted) {
+                reject(new Error('CANCELLED'))
+              } else {
+                resolve()
+              }
+            }, 1000)
+            abortController.signal.addEventListener('abort', () => {
+              clearTimeout(t)
+              reject(new Error('CANCELLED'))
+            })
+          })
+
+          try {
+            const statusRes = await fetch(`/api/search/status/${taskId}`, {
+              signal: abortController.signal,
+            })
+            const statusData = await statusRes.json()
+            const status = statusData?.data
+
+            if (status?.current_country) {
+              setCurrentCountry(status.current_country)
+              setSearchProgress(prev => {
+                const done = new Set(prev.completed_countries)
+                done.add(status.current_country)
+                const pending = prev.pending_countries.filter(c => c !== status.current_country)
+                return { completed_countries: [...done], pending_countries: pending }
+              })
+            }
+            if (status?.status === 'completed') {
+              data = status.results || []
+              break
+            }
+            if (status?.status === 'failed') {
+              throw new Error(status.error || '搜索失败')
+            }
+            // 每 30 秒打印一次进度提示
+            if (i > 0 && i % 30 === 0) {
+              console.log(`[SearchPage] 进行中 ${i}s，已完成 ${status?.country_index || 0}/${status?.total_countries || '?'} 个国家`)
+            }
+          } catch (fetchErr) {
+            if (fetchErr.message === 'CANCELLED') {
+              pollingError = null
+              break
+            }
+            throw fetchErr
           }
         }
-        if (!data.length) {
+
+        if (!data.length && !pollingError && !pollingRef.current?._stopped) {
           throw new Error(`搜索进行中（${seconds}秒），可关闭页面稍后从历史记录查看结果`)
         }
       } finally {
-        clearInterval(tick)
+        // 清理：停止计时器，移除 pollingRef
+        if (pollingRef.current?.taskId === taskId) {
+          if (pollingRef.current.tick) clearInterval(pollingRef.current.tick)
+          pollingRef.current = null
+        }
         setSearchSeconds(0)
       }
+
+      // 如果被停止（用户取消或组件卸载），不再更新结果
+      if (!data.length) return
 
       setResults(data)
 
@@ -329,6 +402,7 @@ export default function SearchPage() {
 
       <SearchRunner
         onRun={handleSearch}
+        onStop={stopPolling}
         onAddCustomer={handleAddCustomer}
         loading={loading}
         progress={searchSeconds}

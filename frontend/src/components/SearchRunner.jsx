@@ -125,7 +125,7 @@ const CountryProgress = ({ searchProgress, onReset }) => {
 }
 
 export default function SearchRunner({
-  onRun, onAddCustomer, loading, progress, results, scores,
+  onRun, onStop, onAddCustomer, loading, progress, results, scores,
   scoringIdx, onScoreOne, addedIds,
   selectedItems, onSelectionChange, onBatchImport, batchImporting, batchImportResult,
   currentCountry,
@@ -223,22 +223,28 @@ export default function SearchRunner({
             />
           </div>
           <div>
-            <button
-              type="submit"
-              disabled={loading || (!keyword.trim() && !hsCode.trim())}
-              className="btn-primary w-full disabled:opacity-40"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="w-4 h-4 border-2 border-caviar-ivory border-t-transparent rounded-full animate-spin" />
-                  搜索中...
-                </span>
-              ) : allDone ? (
-                '🔄 继续搜索待搜国家'
-              ) : (
-                '🔍 开始搜索'
-              )}
-            </button>
+            {loading ? (
+              <button
+                type="button"
+                onClick={onStop}
+                className="w-full flex items-center justify-center gap-2 bg-red-700 hover:bg-red-800 text-white font-medium py-2 px-4 rounded transition-colors disabled:opacity-50"
+              >
+                <div className="w-4 h-4 border-2 border-caviar-ivory border-t-transparent rounded-full animate-spin" />
+                停止搜索
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={(!keyword.trim() && !hsCode.trim())}
+                className="btn-primary w-full disabled:opacity-40"
+              >
+                {allDone ? (
+                  '🔄 继续搜索待搜国家'
+                ) : (
+                  '🔍 开始搜索'
+                )}
+              </button>
+            )}
           </div>
         </div>
       </form>
