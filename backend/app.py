@@ -60,6 +60,9 @@ def create_app(config_name=None):
 
     @app.before_request
     def _guard_all():
+        # CORS 预检请求（OPTIONS）直接放行，否则浏览器报 Network Error
+        if _req.method == 'OPTIONS':
+            return None
         path = _req.path
         if not any(path.startswith(p) for p in _protected_prefixes):
             return None
