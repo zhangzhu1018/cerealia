@@ -13,10 +13,9 @@
 #   proxy=true    →  告诉 Netlify 这是反向代理，不是重定向
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Render 部署后，将下面的 YOUR-RENDER-URL 替换为真实后端地址 ──────────────
-# Render 部署完成后运行：python scripts/update_redirects.py
-# 或者手动将下方的 caviar-crm-backend.onrender.com 替换为真实 URL
-/api/*        https://caviar-crm-backend.onrender.com/api/:splat   200
+# ── 后端通过 serveo.net 隧道暴露到公网（需保持 tunnel 进程运行）─────────────
+# 每次运行 `ssh -R 80:localhost:5001 serveo.net` 会话后，如 URL 变化则需更新
+/api/*        https://028662142bd97438-153-254-110-180.serveousercontent.com/api/:splat   200
 
 # ── SPA fallback（所有未匹配路由回退到 index.html）─────────────
 /*            /index.html                                              200
