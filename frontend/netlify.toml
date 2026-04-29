@@ -1,0 +1,3 @@
+# Netlify Functions — API 代理
+[functions]
+  directory = "frontend/netlify/functions"

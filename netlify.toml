@@ -5,16 +5,15 @@
 [build.environment]
   NODE_VERSION = "18"
 
-# ── API 反向代理：将 /api/* 请求转发到 Railway 后端 ────────────
-# ⚠️ 替换 YOUR-RAILWAY-URL.railway.app 为实际 Railway 部署域名
-[[redirects]]
-  from = "/api/*"
-  to = "https://YOUR-RAILWAY-URL.railway.app/api/:splat"
-  status = 200
-  force = true
-  proxy = true
+# ── Edge Functions 全局配置 ────────────────────────────────────────────────
+[functions]
+  directory = "frontend/netlify/functions"
+  node_bundler = "esbuild"
 
-# ── SPA 路由 fallback ────────────────────────────────────────
+# ── API 反向代理（Edge Function 模式，更可靠）────────────────────────────
+# [[redirects]] 已由 Edge Function proxy.js 替代，无需配置
+
+# ── SPA 路由 fallback ─────────────────────────────────────────────────────
 [[redirects]]
   from = "/*"
   to = "/index.html"

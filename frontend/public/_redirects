@@ -1,21 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Netlify _redirects — API 代理配置
-# ─────────────────────────────────────────────────────────────────────────────
-# ⚠️  必读：将下方 YOUR-RAILWAY-URL.railway.app
-#     替换为你在 Railway 上部署后端后获得的具体域名。
-#     示例：backend-username.up.railway.app
-#
-# 格式说明：
-#   /api/*        →  匹配所有 /api/ 开头的路径
-#   https://...    →  转发到的目标地址
-#   :splat        →  保留路径的剩余部分
-#   200           →  内部重写（URL 不变，浏览器地址栏不变）
-#   proxy=true    →  告诉 Netlify 这是反向代理，不是重定向
+# /api/* → 路由到 Netlify Function（由 proxy.js 处理）                      ─
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── 后端通过 serveo.net 隧道暴露到公网（需保持 tunnel 进程运行）─────────────
-# 每次运行 `ssh -R 80:localhost:5001 serveo.net` 会话后，如 URL 变化则需更新
-/api/*        https://028662142bd97438-153-254-110-180.serveousercontent.com/api/:splat   200
+# 所有 /api/* 请求路由到 proxy Function（~开头表示函数）
+/api/*  /.netlify/functions/proxy  200
 
-# ── SPA fallback（所有未匹配路由回退到 index.html）─────────────
+# ── SPA fallback ─────────────────────────────────────────────────────────────
 /*            /index.html                                              200
