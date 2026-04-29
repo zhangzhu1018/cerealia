@@ -1,50 +1,75 @@
 /**
- * Netlify Edge Function: API 反向代理
+ * Netlify Function: API 反向代理
  * 将所有 /api/* 请求转发到后端服务
- * 环境变量: BACKEND_URL（如 https://028662142bd97438-153-254-110-180.serveousercontent.com）
+ * 环境变量: BACKEND_URL（可选，默认指向 serveo 隧道）
  */
-export default async (request, context) => {
-  const BACKEND_URL = Deno.env.get('BACKEND_URL') || 'https://028662142bd97438-153-254-110-180.serveousercontent.com';
+const https = require('https');
+const http = require('http');
 
-  const url = new URL(request.url);
-  const path = url.pathname.replace(/^\/api/, ''); // 去掉 /api 前缀
+const BACKEND_HOST = '028662142bd97438-153-254-110-180.serveousercontent.com';
 
-  const targetUrl = `${BACKEND_URL}/api${path}${url.search}`;
+module.exports = async (event, context) => {
+  const { path, httpMethod, headers, body, queryStringParameters } = event;
 
-  try {
-    const response = await fetch(targetUrl, {
-      method: request.method,
+  // path 形如 "/api/health"，去掉 /api 前缀
+  const apiPath = path.startsWith('/api') ? path.slice(4) : path;
+  const targetPath = `/api${apiPath}`;
+
+  // 构建查询字符串
+  const qs = queryStringParameters
+    ? '?' + Object.entries(queryStringParameters).map(([k, v]) => `${k}=${v}`).join('&')
+    : '';
+
+  const targetUrl = `https://${BACKEND_HOST}${targetPath}${qs}`;
+
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(targetUrl);
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || 443,
+      path: urlObj.pathname + urlObj.search,
+      method: httpMethod,
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent': request.headers.get('User-Agent') || 'caviar-crm-proxy/1.0',
         'Accept': 'application/json',
+        'User-Agent': 'caviar-crm-proxy/1.0',
         ...Object.fromEntries(
-          [...request.headers.entries()].filter(([k]) =>
-            !['host', 'connection', 'content-length'].includes(k.toLowerCase())
+          Object.entries(headers || {}).filter(([k]) =>
+            !['host', 'connection', 'content-length', 'accept-encoding'].includes(k.toLowerCase())
           )
         ),
       },
-      body: ['POST', 'PUT', 'PATCH'].includes(request.method)
-        ? await request.text()
-        : undefined,
+    };
+
+    const protocol = urlObj.protocol === 'https:' ? https : http;
+    const req = protocol.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode,
+          headers: {
+            'Content-Type': res.headers['content-type'] || 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': '*',
+          },
+          body: data,
+        });
+      });
     });
 
-    const data = await response.text();
-    const contentType = response.headers.get('content-type') || 'application/json';
+    req.on('error', (err) => {
+      resolve({
+        statusCode: 503,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: 503, message: '后端服务不可用: ' + err.message }),
+      });
+    });
 
-    return new Response(data, {
-      status: response.status,
-      headers: {
-        'Content-Type': contentType,
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': '*',
-      },
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ code: 503, message: '后端服务不可用: ' + err.message }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+    if (body && ['POST', 'PUT', 'PATCH'].includes(httpMethod)) {
+      req.write(body);
+    }
+    req.end();
+  });
 };

@@ -5,15 +5,11 @@
 [build.environment]
   NODE_VERSION = "18"
 
-# ── Edge Functions 全局配置 ────────────────────────────────────────────────
+# ── Functions 目录 ──────────────────────────────────────────────────────────
 [functions]
   directory = "frontend/netlify/functions"
-  node_bundler = "esbuild"
 
-# ── API 反向代理（Edge Function 模式，更可靠）────────────────────────────
-# [[redirects]] 已由 Edge Function proxy.js 替代，无需配置
-
-# ── SPA 路由 fallback ─────────────────────────────────────────────────────
+# ── SPA fallback ─────────────────────────────────────────────────────────────
 [[redirects]]
   from = "/*"
   to = "/index.html"

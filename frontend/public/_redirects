@@ -1,10 +1,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Netlify _redirects — API 代理配置
-# /api/* → 路由到 Netlify Function（由 proxy.js 处理）                      ─
+# /api/* → 路由到 Netlify Function proxy                                 ─
 # ─────────────────────────────────────────────────────────────────────────────
 
-# 所有 /api/* 请求路由到 proxy Function（~开头表示函数）
+# 函数代理：~ 开头表示 Netlify Function
 /api/*  /.netlify/functions/proxy  200
 
 # ── SPA fallback ─────────────────────────────────────────────────────────────
-/*            /index.html                                              200
+/*            /index.html  200
