@@ -297,7 +297,7 @@ def run_search():
     completed = _country_search_completed.get(session_key, set())
     # 默认全部国家（Tier 1 → Tier 2 → Tier 3）
     all_countries = countries if (countries and len(countries) > 0) else list(_ALL_COUNTRIES)
-    pending_countries = [c for c in all_countries if c not in completed]
+    pending_countries = [c for c in all_countries if (c.get("name") if isinstance(c, dict) else str(c)) not in completed]
 
     if not pending_countries:
         return jsonify({

@@ -96,6 +96,14 @@ def create_customer():
     if missing:
         return jsonify({'code': 400, 'message': f'缺少必填字段: {", ".join(missing)}'}), 400
 
+    # 同名去重（仅按公司名，同名公司无论国家均视为重复）
+    company_name = data['company_name_en'].strip()
+    existing = Customer.query.filter(
+        db.func.lower(Customer.company_name_en) == company_name.lower()
+    ).first()
+    if existing:
+        return jsonify({'code': 400, 'message': f'公司 \"{company_name}\" 已存在于客户库中（同名公司，无论国家）'}), 400
+
     # country_name 解析为 country_id
     country_id = data.get('country_id')
     country_name = data.get('country_name')
