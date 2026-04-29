@@ -37,25 +37,34 @@ class Config:
     """基础配置"""
     SECRET_KEY = os.getenv('SECRET_KEY', 'caviar-crm-secret-key-2024')
 
-    # MySQL 数据库配置（MySQL 不可用时自动降级为 SQLite）
-    DB_HOST = os.getenv('DB_HOST', 'localhost')
+    # MySQL 数据库配置（支持两种部署方式）
+    # 方式 1: Railway 风格 - 单独环境变量
+    # 方式 2: Render 风格 - DATABASE_URL 整体连接字符串
+    DB_HOST = os.getenv('DB_HOST', '')
     DB_PORT = os.getenv('DB_PORT', '3306')
-    DB_USER = os.getenv('DB_USER', 'root')
+    DB_USER = os.getenv('DB_USER', '')
     DB_PASSWORD = os.getenv('DB_PASSWORD', '')
     DB_NAME = os.getenv('DB_NAME', 'caviar_crm')
 
-    _using_mysql = bool(DB_PASSWORD)  # 有密码才尝试 MySQL
-
-    if _using_mysql:
+    # 优先使用 DATABASE_URL（Render / 现代 PaaS 标准）
+    if os.getenv('DATABASE_URL'):
+        SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL')
+        # Render 的 postgres:// 需转为 mysql+pymysql://（如有需要可保持 postgres+pymysql）
+        # 如果是 postgres:// 开头直接使用（SQLAlchemy 1.4+ 原生支持）
+        _using_mysql = 'mysql' in os.getenv('DATABASE_URL', '')
+    elif DB_PASSWORD:
+        # Railway 风格
         SQLALCHEMY_DATABASE_URI = (
             f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@"
             f"{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
         )
+        _using_mysql = True
     else:
-        # 无 DB_PASSWORD 时使用 SQLite（仅用于本地测试）
+        # 无密码时使用 SQLite（仅用于本地测试）
         import pathlib
         _db_path = pathlib.Path(__file__).resolve().parent / "caviar_crm.db"
         SQLALCHEMY_DATABASE_URI = f"sqlite:///{_db_path}"
+        _using_mysql = False
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = os.getenv('SQLALCHEMY_ECHO', 'False').lower() == 'true'

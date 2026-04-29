@@ -13,7 +13,10 @@
 #   proxy=true    →  告诉 Netlify 这是反向代理，不是重定向
 # ─────────────────────────────────────────────────────────────────────────────
 
-/api/*        https://YOUR-RAILWAY-URL.railway.app/api/:splat   200
+# ── Render 部署后，将下面的 YOUR-RENDER-URL 替换为真实后端地址 ──────────────
+# Render 部署完成后运行：python scripts/update_redirects.py
+# 或者手动将下方的 caviar-crm-backend.onrender.com 替换为真实 URL
+/api/*        https://caviar-crm-backend.onrender.com/api/:splat   200
 
 # ── SPA fallback（所有未匹配路由回退到 index.html）─────────────
 /*            /index.html                                              200
