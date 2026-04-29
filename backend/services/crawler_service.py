@@ -398,26 +398,28 @@ class CustomerSearchController:
         total_countries = len(countries)
 
         for i, c in enumerate(countries):
-            c_info = self._find_country_info(c)
+            # 统一处理：c 可能是 dict({"code":"FR","name":"France"}) 或 string
+            country_name = c.get('name') if isinstance(c, dict) else str(c)
+            c_info = self._find_country_info(country_name)
             tier = c_info[1] if c_info else 3
 
             # tier 3 只用英文；tier 1/2 本地语言 + tier 1 用更多关键词
             use_local = local_search and tier <= 2
 
-            print(f'[AISearch] [{i+1}/{total_countries}] 国家: {c} | Tier: {tier} | '
+            print(f'[AISearch] [{i+1}/{total_countries}] 国家: {country_name} | Tier: {tier} | '
                   f'本地搜索: {"✓" if use_local else "✗"} | '
                   f'产品: {product_name or "鲟鱼子酱"} | HS: {hs_code or "无"}')
 
             results = self.search_by_country(
-                c, keyword_type='importer',
+                country_name, keyword_type='importer',
                 product_name=product_name, hs_code=hs_code,
                 use_local=use_local
             )
             all_results.extend(results)
-            print(f'[AISearch]   → {c} 完成，找到 {len(results)} 条结果')
+            print(f'[AISearch]   → {country_name} 完成，找到 {len(results)} 条结果')
 
             if progress_callback:
-                progress_callback(i + 1, total_countries, c, country_results=results)
+                progress_callback(i + 1, total_countries, country_name, country_results=results)
 
         return all_results
 

@@ -8,7 +8,7 @@ GET  /search/progress     - 查询搜索进度
 POST /search/reset        - 重置搜索进度
 GET  /search/resume       - 查询是否有未完成的搜索会话（断线恢复）
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from ..services.crawler_service import CustomerSearchController, _CAVIAR_COUNTRIES
 from ..models import db, SearchSession
 import threading
@@ -86,8 +86,21 @@ def _db_save_partial_results(results: list, product_name: str, hs_code: str):
     return imported, existing
 
 
-def _run_search_async(task_id, countries, search_type, product_name=None, hs_code=None, local_search=True):
-    """后台执行搜索任务（支持断线恢复：每国家完成后写 DB）"""
+def _run_search_async(task_id, countries, search_type, product_name=None, hs_code=None, local_search=True, flask_app=None):
+    """后台执行搜索任务（支持断线恢复：每国家完成后写 DB）
+    
+    flask_app: Flask app 对象，用于在后台线程中提供应用上下文
+    """
+    # 后台线程需要 Flask 应用上下文才能使用 db.session
+    if flask_app:
+        with flask_app.app_context():
+            _run_search_async_inner(task_id, countries, search_type, product_name, hs_code, local_search)
+    else:
+        _run_search_async_inner(task_id, countries, search_type, product_name, hs_code, local_search)
+
+
+def _run_search_async_inner(task_id, countries, search_type, product_name=None, hs_code=None, local_search=True):
+    """_run_search_async 的实际实现，运行在 Flask app context 中"""
     try:
         _search_tasks[task_id]['status'] = 'running'
         _search_tasks[task_id]['current_country'] = None
@@ -258,7 +271,8 @@ def run_search():
             # 重启后台线程继续搜索
             thread = threading.Thread(
                 target=_run_search_async,
-                args=(task_id, pending_countries, 'incremental', product_name, hs_code, local_search),
+                args=(task_id, pending_countries, 'incremental', product_name, hs_code, local_search,
+                      current_app._get_current_object()),
                 daemon=True
             )
             thread.start()
@@ -331,7 +345,8 @@ def run_search():
     # 后台线程执行
     thread = threading.Thread(
         target=_run_search_async,
-        args=(task_id, pending_countries, 'incremental', product_name, hs_code, local_search),
+        args=(task_id, pending_countries, 'incremental', product_name, hs_code, local_search,
+              current_app._get_current_object()),
         daemon=True
     )
     thread.start()
