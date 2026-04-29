@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import CustomerTable from '../components/CustomerTable'
 import CustomerForm from '../components/CustomerForm'
 import { Modal } from '../components/ui/Modal'
@@ -58,9 +58,17 @@ export default function CustomerList() {
   })
   const [searchInput, setSearchInput] = useState('')
   const [sort, setSort] = useState({ field: 'updated_at', dir: 'desc' })
+  // 静默刷新（后台刷新，不显示 loading 遮罩）
+  const [refreshing, setRefreshing] = useState(false)
+  // 搜索刚完成时立即刷新（通知来自 SearchPage）
+  const justImported = useRef(false)
 
-  const fetchCustomers = useCallback(async () => {
-    setLoading(true)
+  const fetchCustomers = useCallback(async (silent = false) => {
+    if (silent) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     try {
       const params = { ...filters }
       if (sort.field) {
@@ -80,12 +88,26 @@ export default function CustomerList() {
       console.error('Failed to fetch customers:', err)
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [filters, sort, searchInput])
 
+  // 首次加载
   useEffect(() => {
     fetchCustomers()
   }, [fetchCustomers])
+
+  // 每 10 秒静默刷新（搜索导入的新客户实时出现在列表中）
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // 有筛选条件时跳过静默刷新，避免干扰用户筛选
+      const hasFilters = filters.country || filters.customer_type || filters.grade || filters.follow_status || searchInput.trim()
+      if (!hasFilters) {
+        fetchCustomers(true)
+      }
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [fetchCustomers, filters, searchInput])
 
   const handleSort = (field) => {
     setSort((prev) => ({
@@ -111,6 +133,13 @@ export default function CustomerList() {
 
   return (
     <div className="space-y-4">
+      {/* 静默刷新指示 */}
+      {refreshing && (
+        <div className="text-[11px] text-caviar-muted flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          同步中...
+        </div>
+      )}
       {/* 顶部操作栏 */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         {/* 搜索 + 筛选 */}

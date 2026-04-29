@@ -169,7 +169,7 @@ export default function SearchPage() {
 
       setResults(data)
 
-      // ── 自动导入全部结果到客户池（后台静默执行）────────────────────────────
+      // ── 自动导入全部结果到客户池（同步执行，入库即永久保存）──────────────────
       try {
         const importRes = await importSearchResults(data)
         const importResult = importRes?.data || importRes
@@ -181,14 +181,12 @@ export default function SearchPage() {
         if (importedNames.size > 0) {
           setAddedIds(prev => new Set([...prev, ...importedNames]))
         }
-        // 显示导入结果提示（不打断流程）
-        if (importResult.imported > 0 || importResult.skipped > 0) {
-          setBatchImportResult({
-            imported: importResult.imported || 0,
-            skipped: importResult.skipped || 0,
-            failed: importResult.failed || 0,
-          })
-        }
+        // 明确展示导入结果
+        setBatchImportResult({
+          imported: importResult.imported || 0,
+          skipped: importResult.skipped || 0,
+          failed: importResult.failed || 0,
+        })
       } catch (_) {
         // 导入失败不影响评分，继续执行
       }
