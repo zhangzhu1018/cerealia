@@ -413,6 +413,11 @@ def get_task_status(task_id):
     # 1. 优先查内存（前端在线时）
     if task_id in _search_tasks:
         task = _search_tasks[task_id]
+        # 同时查询 DB session 获取最新的计数
+        db_sess = SearchSession.query.filter_by(task_id=task_id).first()
+        imported_count = db_sess.imported_count if db_sess else 0
+        result_count = db_sess.result_count if db_sess else 0
+        
         response = {
             'task_id': task_id,
             'status': task['status'],
@@ -420,6 +425,8 @@ def get_task_status(task_id):
             'current_country': task.get('current_country'),
             'country_index': task.get('country_index'),
             'total_countries': task.get('total_countries'),
+            'imported_count': imported_count,      # 从 DB 读取最新入库数
+            'result_count': result_count,           # 从 DB 读取最新结果数
             'source': 'memory',
         }
         if task['status'] == 'completed':

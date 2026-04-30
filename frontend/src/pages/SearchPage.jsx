@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import SearchRunner from '../components/SearchRunner'
-import { runSearch, createCustomer, calculateScore, getCustomers, importSearchResults, resetSearchProgress, checkResume } from '../api'
+import { runSearch, createCustomer, calculateScore, getCustomers, importSearchResults, resetSearchProgress, checkResume, getSearchStatus } from '../api'
 
 export default function SearchPage() {
   const [loading, setLoading] = useState(false)
@@ -177,10 +177,9 @@ export default function SearchPage() {
 
         // 拉取状态
         try {
-          const statusRes = await fetch(`/api/search/status/${taskId}`)
+          const statusRes = await getSearchStatus(taskId)
           if (stopped.value) break
-          const statusData = await statusRes.json()
-          const status = statusData?.data
+          const status = statusRes?.data
 
           // 实时更新国家进度
           if (status?.current_country) {

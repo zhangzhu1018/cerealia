@@ -105,6 +105,8 @@ export const getEmailTaskProgress = (id) => api.get(`/emails/tasks/${id}/progres
 export const getEmailTaskLogs = (id, params) => api.get(`/emails/tasks/${id}/logs`, { params })
 
 // ---------- 搜索 ----------
+// 查询搜索任务状态（轮询用）
+export const getSearchStatus = (taskId) => api.get(`/search/status/${taskId}`)
 // runSearch：POST /search/run → { code, data: { task_id, status, ... } }
 export const runSearch = (data) => api.post('/search/run', data)
 // getSearchHistory：GET /search/history → { code, data: [{ task_id, status, total_results, ... }] }

@@ -224,19 +224,22 @@ def _ai_search_companies(query: str, country: str, max_results: int = 10) -> lis
     client, model = _get_ai_client()
 
     system_prompt = (
-        "You are a B2B business intelligence assistant specializing in the global food trade industry. "
-        "When given a search query about caviar/sturgeon roe importers, distributors, or wholesalers, "
-        "you return REAL, VERIFIABLE companies that match the query. "
-        "Format your response as a JSON array ONLY, no markdown, no explanation. "
-        "Each element: {\"company_name_en\": \"...\", \"website\": \"...\", \"snippet\": \"...\", \"country\": \"...\"}. "
-        "If you are unsure about a website, set it to empty string. "
-        "Return up to " + str(max_results) + " companies."
+        "You are a B2B business intelligence database of VERIFIED companies in the global gourmet food industry. "
+        "You have factual knowledge of real companies that actually exist and operate today. "
+        "ONLY return companies you know for certain are real. If you are unsure, return fewer results. "
+        "Format: JSON array only, no markdown, no explanation. "
+        "Each element: {\"company_name_en\": \"...\", \"website\": \"...\", \"snippet\": \"25-word description\", \"country\": \"...\", \"type\": \"importer|distributor|retailer|producer\"}. "
+        "Website must be a real domain you know exists, or empty string \"\" if unsure. "
+        "Return up to " + str(max_results) + " companies. Prioritize companies with known websites."
     )
 
     user_prompt = (
-        f"Find real companies in {country} that match this search: \"{query}\". "
-        f"Focus on businesses that import, distribute, wholesale or retail caviar/sturgeon roe. "
-        f"Include their official website if known. Return JSON array only."
+        f"List REAL, VERIFIABLE companies in {country} that are involved in the caviar/sturgeon roe trade. "
+        f"Search context: \"{query}\". "
+        f"Include ONLY companies you can confirm exist — restaurants, importers, distributors, retailers, or producers. "
+        f"If you know their official website, include it. Otherwise leave website empty. "
+        f"If you find fewer than {max_results} real companies, return only what you know. "
+        f"Return JSON array only."
     )
 
     try:
@@ -267,11 +270,11 @@ class CustomerSearchController:
     """客户搜索控制器（AI 搜索版，支持全球 150+ 国家 + 本地语言二次搜索）"""
 
     BASE_KEYWORDS = [
-        'caviar importer',
-        'caviar wholesale',
-        'caviar distributor',
-        'premium seafood supplier',
-        'luxury food importer',
+        'caviar importer distributor',
+        'caviar wholesale supplier',
+        'sturgeon caviar buyer',
+        'premium gourmet food distributor',
+        'luxury seafood importer',
     ]
 
     # tier 1 最大关键词数，tier 2 中等，tier 3 精简
@@ -422,12 +425,39 @@ class CustomerSearchController:
         return all_results
 
     def deduplicate(self, results):
-        """去重"""
+        """去重：按 website + 公司名前3词模糊匹配（跨语言去重）"""
+        import re
         seen = set()
+        seen_names = set()
         unique = []
         for r in results:
-            key = r.get('website', '') or r.get('company_name_en', '')
-            if key and key not in seen:
-                seen.add(key)
-                unique.append(r)
+            url = (r.get('website', '') or '').strip().lower()
+            name = (r.get('company_name_en', '') or '').strip()
+            
+            # 1. 相同 URL → 直接去重
+            if url and url in seen:
+                continue
+                
+            # 2. 公司名前 3 词作为指纹（处理 "Caviar de France" vs "Caviar De France"）
+            name_fingerprint = ' '.join(name.lower().split()[:3])
+            # 降级：用前 2 词
+            name_fp2 = ' '.join(name.lower().split()[:2])
+            
+            if name_fingerprint in seen_names or name_fp2 in seen_names:
+                # 保留有 website 的版本
+                for existing in unique:
+                    existing_name = (existing.get('company_name_en', '') or '').strip()
+                    existing_fp = ' '.join(existing_name.lower().split()[:3])
+                    if existing_fp == name_fingerprint or existing_fp == name_fp2:
+                        if url and not existing.get('website'):
+                            existing['website'] = r.get('website')
+                            existing['snippet'] = r.get('snippet', existing.get('snippet', ''))
+                        break
+                continue
+            
+            if url:
+                seen.add(url)
+            seen_names.add(name_fingerprint)
+            seen_names.add(name_fp2)
+            unique.append(r)
         return unique
