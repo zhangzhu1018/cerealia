@@ -40,6 +40,7 @@ export default function Sidebar({ collapsed, onToggle }) {
     <nav
       style={{ position: 'fixed', top: 0, left: 0, height: '100vh', zIndex: 40 }}
       className={[
+        'hidden md:flex',  // 移动端隐藏，md以上显示
         'sidebar bg-bg-sidebar border-r border-border-subtle',
         'flex flex-col',
         collapsed ? 'collapsed' : '',

@@ -768,3 +768,15 @@ def send_test():
     if success:
         return jsonify({'code': 0, 'message': f'测试邮件已发送至 {data["to_email"]}'})
     return jsonify({'code': 500, 'message': f'发送失败: {err}'}), 500
+
+
+@bp.route('/track/<log_id>', methods=['GET'])
+def track_open(log_id):
+    """邮件打开追踪像素：嵌入式1x1透明GIF"""
+    from ..models import EmailSentLog, db
+    log = EmailSentLog.query.get(log_id)
+    if log and not log.opened_at:
+        log.opened_at = datetime.utcnow()
+        db.session.commit()
+    pixel = b'GIF89a...'  # 1x1透明像素
+    return b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x00\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b', 200, {'Content-Type': 'image/gif', 'Cache-Control': 'no-cache'}
