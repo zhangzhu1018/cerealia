@@ -142,6 +142,7 @@ export default function SearchRunner({
 }) {
   const [keyword, setKeyword] = useState('')
   const [hsCode, setHsCode] = useState('')
+  const [showCount, setShowCount] = useState(20)  // 分页：初始显示 20 条
 
   const handleRun = (e) => {
     e.preventDefault()
@@ -276,7 +277,7 @@ export default function SearchRunner({
         <div className="card">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h3 className="text-caviar-cream font-display text-base">
-              搜索结果 ({results.length})
+              搜索结果 ({results.length}) {partialImportedCount > 0 && <span className="text-caviar-gold text-xs ml-2">已入库 {partialImportedCount} 家</span>}
             </h3>
 
             <div className="flex items-center gap-3">
@@ -332,7 +333,7 @@ export default function SearchRunner({
           )}
 
           <div className="space-y-2">
-            {results.map((item, idx) => {
+            {results.slice(0, showCount).map((item, idx) => {
               const score = scores?.[idx]
               const isScoringThis = scoringIdx === idx
               const itemAdded = isAdded(item)
@@ -383,7 +384,12 @@ export default function SearchRunner({
                       {item.company_name_en || item.company_name}
                     </p>
                     {item.website && (
-                      <p className="text-caviar-muted text-xs truncate mt-0.5">{item.website}</p>
+                      <p className="text-caviar-muted text-xs truncate mt-0.5">
+                        {item.website_verified ? 
+                          <span className="text-green-400" title="网站已验证可达">✓</span> : 
+                          <span className="text-yellow-500" title="未验证">~</span>
+                        } {item.website}
+                      </p>
                     )}
                     {item.snippet && (
                       <p className="text-caviar-muted text-xs mt-1 line-clamp-1">{item.snippet}</p>
@@ -409,6 +415,18 @@ export default function SearchRunner({
                 </div>
               )
             })}
+
+            {/* 分页：Load More */}
+            {results.length > showCount && (
+              <div className="text-center mt-4">
+                <button
+                  onClick={() => setShowCount(prev => prev + 20)}
+                  className="btn-secondary text-sm px-6 py-2"
+                >
+                  加载更多（当前显示 {showCount} / 共 {results.length}）
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
