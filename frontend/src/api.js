@@ -1,8 +1,7 @@
 import axios from 'axios'
 
-// 后端服务地址（serveo.net SSH 隧道，需保持隧道进程运行）
-// 隧道命令：ssh -R 80:localhost:5001 serveo.net
-const BACKEND_URL = 'https://1be7f8a2b839364c-218-104-202-62.serveousercontent.com'
+// 后端服务地址（VITE_API_URL 环境变量配置，默认 localhost 用于开发）
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 
 const api = axios.create({
   baseURL: BACKEND_URL + '/api',

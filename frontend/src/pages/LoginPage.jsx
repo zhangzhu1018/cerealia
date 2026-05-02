@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-const API = 'https://1be7f8a2b839364c-218-104-202-62.serveousercontent.com/api'
+const API = (import.meta.env.VITE_API_URL || 'http://localhost:5000') + '/api'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')

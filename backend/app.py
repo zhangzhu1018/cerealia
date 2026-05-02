@@ -6,6 +6,8 @@ import os
 from flask import Flask, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 from .models import db
 from .config import config_by_name, Config
@@ -29,6 +31,14 @@ def create_app(config_name=None):
             "supports_credentials": True
         }
     })
+
+    # API 限流（保护 DeepSeek API 不被打爆）
+    limiter = Limiter(
+        key_func=get_remote_address,
+        default_limits=["200 per hour", "50 per minute"],
+        storage_uri="memory://",
+    )
+    limiter.init_app(app)
 
     # 注册蓝图
     from .routes.customers import bp as customers_bp

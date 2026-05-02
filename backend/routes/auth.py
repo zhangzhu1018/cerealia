@@ -46,13 +46,28 @@ def login_required(f):
     return wrapper
 
 
+import bcrypt
+
 def hash_password(password: str) -> str:
-    """简单 SHA256 哈希（生产环境建议用 bcrypt）"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """bcrypt 加密（安全替代 SHA256）"""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return hash_password(password) == password_hash
+    """验证密码：bcrypt 优先，兼容旧 SHA256 哈希"""
+    # bcrypt 哈希以 $2b$ 开头
+    if password_hash.startswith('$2') and len(password_hash) >= 50:
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+    # 旧 SHA256 fallback（迁移后移除）
+    return hashlib.sha256(password.encode()).hexdigest() == password_hash
+
+
+def ensure_compatible_password(user) -> None:
+    """如果用户密码仍是 SHA256，自动迁移到 bcrypt"""
+    from ..models import db
+    if user.password_hash and not user.password_hash.startswith('$2'):
+        user.password_hash = bcrypt.hashpw(user.password_hash.encode(), bcrypt.gensalt()).decode()
+        db.session.commit()
 
 
 @bp.route('/login', methods=['POST'])
