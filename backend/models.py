@@ -331,6 +331,19 @@ class User(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+# ─── 认证令牌（DB 持久化，支持多 worker）──────────────────────────────────
+class AuthToken(db.Model):
+    """认证令牌表：替代内存 _token_store，支持 gunicorn 多 worker"""
+    __tablename__ = 'auth_tokens'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User', backref='tokens')
+
+
 # ─── 产品 / HS CODE ────────────────────────────────────────────────────────────
 
 class Product(db.Model):

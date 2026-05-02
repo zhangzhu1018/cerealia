@@ -1,34 +1,30 @@
 """
 认证路由 - 登录 / 登出 / 当前用户
+Token 持久化到 DB（auth_tokens 表），支持 gunicorn 多 worker
 """
 import hashlib
 import secrets
-import threading
 from flask import Blueprint, request, jsonify
-from ..models import db, User
+from ..models import db, User, AuthToken
 
 bp = Blueprint('auth', __name__, url_prefix='/api/auth')
-
-# 内存 token → user_id 映射（生产环境建议用 Redis）
-_token_store: dict[str, int] = {}
-_token_lock = threading.Lock()
 
 
 def _make_token(uid: int) -> str:
     tok = secrets.token_hex(32)
-    with _token_lock:
-        _token_store[tok] = uid
+    db.session.add(AuthToken(token=tok, user_id=uid))
+    db.session.commit()
     return tok
 
 
 def _uid_from_token(token: str) -> int | None:
-    with _token_lock:
-        return _token_store.get(token)
+    at = AuthToken.query.filter_by(token=token).first()
+    return at.user_id if at else None
 
 
 def _revoke_token(token: str):
-    with _token_lock:
-        _token_store.pop(token, None)
+    AuthToken.query.filter_by(token=token).delete()
+    db.session.commit()
 
 
 # ── login_required 装饰器 ──────────────────────────────────────────────────

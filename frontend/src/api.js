@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // 后端服务地址（serveo.net SSH 隧道，需保持隧道进程运行）
 // 隧道命令：ssh -R 80:localhost:5001 serveo.net
-const BACKEND_URL = 'https://028662142bd97438-153-254-110-180.serveousercontent.com'
+const BACKEND_URL = 'https://1be7f8a2b839364c-218-104-202-62.serveousercontent.com'
 
 const api = axios.create({
   baseURL: BACKEND_URL + '/api',

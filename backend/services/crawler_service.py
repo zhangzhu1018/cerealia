@@ -6,7 +6,22 @@ import os
 import json
 import time
 import re
+import urllib.request
+import urllib.error
 from openai import OpenAI
+
+
+def _verify_url(url: str, timeout: int = 3) -> bool:
+    """验证 URL 是否可达（HEAD 请求，快速检查 AI 生成的网站是否真实存在）"""
+    if not url or not url.startswith(('http://', 'https://')):
+        return False
+    try:
+        req = urllib.request.Request(url, method='HEAD')
+        req.add_header('User-Agent', 'Cerealia-CRM/1.0')
+        urllib.request.urlopen(req, timeout=timeout)
+        return True
+    except Exception:
+        return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -350,15 +365,18 @@ class CustomerSearchController:
             try:
                 found = _ai_search_companies(kw, country)
                 for item in found:
+                    url = item.get('website', '')
+                    website_verified = _verify_url(url) if url else False
                     results.append({
                         'company_name_en': item.get('company_name_en', ''),
-                        'website': item.get('website', ''),
+                        'website': url,
                         'country': item.get('country', country),
                         'source': 'ai_search',
                         'snippet': item.get('snippet', ''),
                         'product_name': product_name,
                         'hs_code': hs_code,
                         'tier': tier,
+                        'website_verified': website_verified,
                     })
                 time.sleep(1)
             except Exception as e:
