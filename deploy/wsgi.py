@@ -8,6 +8,7 @@ os.chdir(project_home)
 
 # 环境变量
 os.environ['FLASK_ENV'] = 'production'
+os.environ['SKIP_MIGRATIONS'] = 'true'
 os.environ['DEEPSEEK_API_KEY'] = 'sk-b969d8e7c3d84ee8bd499170d6e52eaa'
 os.environ['DEEPSEEK_BASE_URL'] = 'https://api.deepseek.com/v1'
 os.environ['AI_SEARCH_MODEL'] = 'deepseek-v4-pro'

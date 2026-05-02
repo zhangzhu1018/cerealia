@@ -110,24 +110,26 @@ def create_app(config_name=None):
     def internal_error(e):
         return jsonify({'code': 500, 'message': '服务器内部错误'}), 500
 
-    # 运行数据库迁移 + 种子数据
+    # 数据库初始化
     with app.app_context():
         try:
-            # Alembic 迁移（替代 db.create_all()）
-            from flask_migrate import upgrade as _upgrade
-            _upgrade()
+            if os.getenv('SKIP_MIGRATIONS'):
+                db.create_all()
+            else:
+                from flask_migrate import upgrade as _upgrade
+                _upgrade()
             from .routes.auth import ensure_admin as _ensure_admin
             _ensure_admin()
             _seed_countries()
         except Exception as e:
-            print(f"[WARNING] 迁移失败: {e}，降级 create_all")
+            print(f"[WARNING] DB初始化: {e}, 重试create_all")
             try:
                 db.create_all()
                 from .routes.auth import ensure_admin as _ensure_admin
                 _ensure_admin()
                 _seed_countries()
             except Exception as e2:
-                print(f"[ERROR] 数据库完全失败: {e2}")
+                print(f"[ERROR] 数据库失败: {e2}")
 
     return app
 
