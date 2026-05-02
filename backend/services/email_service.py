@@ -407,3 +407,37 @@ class EmailGenerator:
             body = body.replace(f'{{{key}}}', str(value))
             subject = subject.replace(f'{{{key}}}', str(value))
         return {'subject': subject, 'body': body}
+
+
+# ── HTML 邮件模板 ────────────────────────────────────────────────────────
+EMAIL_HTML_WRAPPER = '''<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0a;color:#e0e0e0">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0a;padding:40px 0">
+<tr><td align="center">
+<table width="580" cellpadding="0" cellspacing="0" style="background:#141414;border-radius:8px;overflow:hidden;border:1px solid #2a2a2a">
+  <!-- Header -->
+  <tr><td style="padding:32px 40px 16px;text-align:center;border-bottom:1px solid #2a2a2a">
+    <h2 style="color:#c8a96e;font-size:20px;margin:0;font-weight:600">CEREALIA CAVIAR</h2>
+    <p style="color:#888;font-size:12px;margin:4px 0 0">Premium Sturgeon Caviar · Dujiangyan, China</p>
+  </td></tr>
+  <!-- Body -->
+  <tr><td style="padding:24px 40px">
+    <div style="font-size:15px;line-height:1.7;color:#d0d0d0;white-space:pre-line">{body}</div>
+  </td></tr>
+  <!-- Footer -->
+  <tr><td style="padding:24px 40px;border-top:1px solid #2a2a2a;text-align:center">
+    <p style="color:#666;font-size:12px;margin:0">Cerealia Caviar · HACCP & ISO Certified · 0 Additives</p>
+    <p style="color:#555;font-size:11px;margin:4px 0 0">Dujiangyan, Sichuan, China · JooCerealiaCaviar@gmail.com</p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>'''
+def wrap_html_body(text_body: str) -> str:
+    """将纯文本邮件包裹为 Cerealia 品牌 HTML 格式"""
+    escaped = text_body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    parts = escaped.split("\n\n")
+    html_content = "</p><p style='margin:0 0 12px'>".join(parts)
+    html_content = html_content.replace("\n", "<br>")
+    return EMAIL_HTML_WRAPPER.replace("{body}", f"<p style='margin:0 0 12px'>{html_content}</p>")
