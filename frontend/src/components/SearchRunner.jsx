@@ -1,441 +1,140 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { runSearch, getSearchStatus } from '../api'
 
-// 评分徽章
-const ScoreBadge = ({ score }) => {
-  if (!score || score.total_score === undefined) return null
-  const total = score.total_score
-  const cls = total >= 75 ? 'text-emerald-400' : total >= 50 ? 'text-amber-400' : 'text-red-400'
-  return (
-    <span className={`font-mono font-bold text-sm ${cls}`} title="综合评分">
-      {total}
-    </span>
-  )
-}
+export default function SearchRunner({ product, keyword, countries, onReset }) {
+  const [taskId, setTaskId] = useState(null)
+  const [status, setStatus] = useState('idle')
+  const [results, setResults] = useState([])
+  const [current, setCurrent] = useState('')
+  const [imported, setImported] = useState(0)
+  const [error, setError] = useState('')
+  const timer = useRef(null)
 
-// 评分维度小标签
-const ScoreDims = ({ score }) => {
-  if (!score) return null
-  const dims = [
-    { label: '进口', value: score.import_trade_score },
-    { label: '规模', value: score.company_scale_score },
-    { label: '资质', value: score.qualification_score },
-    { label: '合作', value: score.cooperation_potential_score },
-  ].filter(d => d.value !== undefined)
-  return (
-    <div className="flex gap-1.5 mt-1">
-      {dims.map(d => (
-        <span key={d.label} className="text-[10px] text-caviar-muted bg-caviar-dark/60 px-1.5 py-0.5 rounded">
-          {d.label} {d.value}
-        </span>
-      ))}
-    </div>
-  )
-}
+  useEffect(() => {
+    async function run() {
+      try {
+        const r = await runSearch({ product_name: product, countries: countries.map(c => ({ code: c, name: c })), keyword })
+        if (r?.data?.task_id) {
+          setTaskId(r.data.task_id)
+          setStatus('running')
+        } else {
+          setError('Failed to start search')
+        }
+      } catch (e) {
+        setError(e.message)
+      }
+    }
+    run()
+  }, [])
 
-// 搜索进度条（搜索中）
-const SearchProgress = ({ seconds, currentCountry, partialImportedCount }) => {
-  if (!seconds) return null
+  useEffect(() => {
+    if (!taskId || status === 'completed' || status === 'failed') return
+
+    timer.current = setInterval(async () => {
+      try {
+        const resp = await getSearchStatus(taskId)
+        const d = resp?.data || resp
+        if (d.status === 'completed') {
+          setStatus('completed')
+          setResults(d.results || [])
+          setImported(d.imported_count || 0)
+          clearInterval(timer.current)
+        } else if (d.status === 'failed') {
+          setStatus('failed')
+          setError(d.error || 'Unknown error')
+          clearInterval(timer.current)
+        } else {
+          setCurrent(d.current_country || '')
+          setImported(d.partial_imported_count || d.imported_count || 0)
+        }
+      } catch (e) {
+        setError(e.message)
+        clearInterval(timer.current)
+      }
+    }, 3000)
+
+    return () => clearInterval(timer.current)
+  }, [taskId, status])
+
   return (
-    <div className="card py-4">
-      <div className="flex items-center justify-between mb-2 text-sm text-caviar-muted">
-        <span className="flex items-center gap-2">
-          <div className="w-4 h-4 border-2 border-caviar-gold border-t-transparent rounded-full animate-spin" />
-          {currentCountry ? (
-            <>正在搜索：<strong className="text-caviar-gold">{currentCountry}</strong></>
-          ) : (
-            '正在搜索目标客户...'
-          )}
-        </span>
-        <span className="flex items-center gap-3">
-          {partialImportedCount > 0 && (
-            <span className="text-emerald-400 text-xs">
-              📥 已入库 {partialImportedCount} 家
-            </span>
-          )}
-          <span>{seconds}s</span>
-        </span>
+    <div style={{ fontFamily: "'Inter', -apple-system, sans-serif" }}>
+      {/* Status */}
+      <div className="vercel-card" style={{ padding: '24px', marginBottom: 24 }}>
+        <span className="vercel-mono">{status === 'completed' ? 'Complete' : status === 'failed' ? 'Failed' : 'Running'}</span>
+
+        {status === 'running' && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#0a72ef', animation: 'pulse 1.5s infinite' }} />
+              <span style={{ fontSize: 14, color: '#4d4d4d' }}>
+                Searching {current || '...'}
+              </span>
+            </div>
+            <span style={{ fontSize: 12, color: '#808080', marginLeft: 20 }}>{imported} imported</span>
+          </div>
+        )}
+
+        {status === 'completed' && (
+          <div style={{ marginTop: 8 }}>
+            <p style={{ fontSize: 16, fontWeight: 600, color: '#171717' }}>
+              {results.length} companies found · {imported} imported
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <p style={{ marginTop: 8, fontSize: 14, color: '#ff5b4f' }}>{error}</p>
+        )}
       </div>
-      <div className="w-full bg-caviar-dark rounded-full h-1.5 overflow-hidden">
-        <div
-          className="h-full bg-caviar-gold rounded-full transition-all duration-1000 ease-linear"
-          style={{ width: `${Math.min((seconds / 600) * 100, 100)}%` }}
-        />
-      </div>
-      <p className="text-[11px] text-caviar-muted mt-1.5">
-        🌐 全球 150+ 国家搜索（Tier 1 高活跃→Tier 2→Tier 3 低活跃），每国家完成即自动入库，关闭页面后可随时返回继续
-      </p>
-    </div>
-  )
-}
 
-// 国家搜索进度状态条（搜索结束后显示，支持全球 150+ 国家）
-const CountryProgress = ({ searchProgress, onReset }) => {
-  const { completed_countries = [], pending_countries = [] } = searchProgress
-  const total = completed_countries.length + pending_countries.length
-  if (total === 0) return null
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="vercel-card" style={{ overflow: 'hidden' }}>
+          <table className="vercel-table">
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Country</th>
+                <th>Website</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((r, i) => (
+                <tr key={i}>
+                  <td style={{ fontWeight: 500, color: '#171717' }}>{r.company_name_en}</td>
+                  <td style={{ color: '#4d4d4d' }}>{r.country}</td>
+                  <td>
+                    {r.website ? (
+                      <a href={r.website} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#0072f5' }}>
+                        {r.website.replace('https://','').replace('www.','').slice(0,40)}
+                      </a>
+                    ) : (
+                      <span style={{ color: '#808080' }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    <span className="vercel-pill">
+                      {r.source === 'web_search' ? 'web' : 'ai'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-  const pct = total > 0 ? (completed_countries.length / total) * 100 : 0
-  const allDone = pending_countries.length === 0
-
-  // 实时计算速度（每分钟完成多少国家）
-  const recentCount = completed_countries.length
-
-  return (
-    <div className="card py-3">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-caviar-muted">
-          {allDone ? (
-            <span className="text-emerald-400">✅ 全球搜索完毕（{completed_countries.length} 个国家）</span>
-          ) : (
-            <>🌍 全球搜索进度 <span className="text-caviar-gold">{completed_countries.length}/{total}</span></>
-          )}
-        </span>
-        {allDone && (
-          <button
-            onClick={onReset}
-            className="text-[11px] text-caviar-muted hover:text-caviar-gold transition-colors underline"
-          >
-            重置进度，重新搜索
+      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+        <button className="vercel-btn-ghost" onClick={onReset}>← New Search</button>
+        {imported > 0 && (
+          <button className="vercel-btn-dark" onClick={() => window.location.href = '/customers'}>
+            View {imported} customers
           </button>
         )}
       </div>
 
-      {/* 国家进度条 */}
-      <div className="w-full bg-caviar-dark rounded-full h-1.5 overflow-hidden mb-2">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${allDone ? 'bg-emerald-500' : 'bg-caviar-gold'}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-
-      {/* 国家标签（按字母顺序或区域展示） */}
-      <div className="flex flex-wrap gap-1.5">
-        {completed_countries.map(c => (
-          <span key={c} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-900/30 text-emerald-400 border border-emerald-700/30">
-            ✅ {c}
-          </span>
-        ))}
-        {pending_countries.length > 0 && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-caviar-dark text-caviar-muted border border-caviar-sienna/20">
-            +{pending_countries.length} 个待搜国家
-          </span>
-        )}
-      </div>
-
-      {pending_countries.length > 0 && (
-        <p className="text-[11px] text-caviar-muted mt-2">
-          下次搜索将只搜索剩余 <span className="text-caviar-gold">{pending_countries.length}</span> 个国家，已搜国家自动跳过
-        </p>
-      )}
-    </div>
-  )
-}
-
-export default function SearchRunner({
-  onRun, onStop, onAddCustomer, loading, progress, results, scores,
-  scoringIdx, onScoreOne, addedIds,
-  selectedItems, onSelectionChange, onBatchImport, batchImporting, batchImportResult,
-  currentCountry,
-  searchProgress,
-  onResetProgress,
-  partialImportedCount = 0,  // 已实时导入到客户池的数量
-}) {
-  const [keyword, setKeyword] = useState('')
-  const [hsCode, setHsCode] = useState('')
-  const [showCount, setShowCount] = useState(20)  // 分页：初始显示 20 条
-
-  const handleRun = (e) => {
-    e.preventDefault()
-    if (!keyword.trim() && !hsCode.trim()) return
-    onRun({ keyword: keyword.trim(), hs_code: hsCode.trim() })
-  }
-
-  const isAdded = (item) => {
-    const name = item.company_name_en || item.company_name || ''
-    return addedIds?.has(name)
-  }
-
-  const toggleItem = (item, idx) => {
-    const key = item.company_name_en || item.company_name || `__idx_${idx}__`
-    const next = new Set(selectedItems || [])
-    if (next.has(key)) {
-      next.delete(key)
-    } else {
-      next.add(key)
-    }
-    onSelectionChange && onSelectionChange(next)
-  }
-
-  const isSelected = (item, idx) => {
-    const key = item.company_name_en || item.company_name || `__idx_${idx}__`
-    return selectedItems?.has(key)
-  }
-
-  const allSelected = results && results.length > 0 && results.every((item, idx) => isAdded(item) || isSelected(item, idx))
-  const someSelected = results && results.some((item, idx) => isSelected(item, idx) && !isAdded(item))
-
-  const toggleAll = () => {
-    const next = new Set(selectedItems || [])
-    if (allSelected) {
-      results.forEach((item, idx) => {
-        if (!isAdded(item)) {
-          const key = item.company_name_en || item.company_name || `__idx_${idx}__`
-          next.delete(key)
-        }
-      })
-    } else {
-      results.forEach((item, idx) => {
-        if (!isAdded(item)) {
-          const key = item.company_name_en || item.company_name || `__idx_${idx}__`
-          next.add(key)
-        }
-      })
-    }
-    onSelectionChange && onSelectionChange(next)
-  }
-
-  const selectedCount = results
-    ? results.filter((item, idx) => isSelected(item, idx) && !isAdded(item)).length
-    : 0
-
-  // 所有国家搜完了
-  const allDone = searchProgress?.pending_countries?.length === 0 &&
-    (searchProgress?.completed_countries?.length || 0) > 0
-
-  return (
-    <div className="space-y-6">
-      {/* 搜索表单 */}
-      <form onSubmit={handleRun} className="card">
-        <h3 className="text-caviar-cream font-display text-base mb-4">搜索目标客户</h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-          <div>
-            <label className="block text-caviar-muted text-xs mb-1.5 uppercase tracking-wide">
-              关键词
-            </label>
-            <input
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              className="input-field w-full"
-              placeholder="例: caviar, 鲟鱼子酱"
-            />
-          </div>
-          <div>
-            <label className="block text-caviar-muted text-xs mb-1.5 uppercase tracking-wide">
-              HS CODE <span className="normal-case font-normal opacity-60">（可选）</span>
-            </label>
-            <input
-              value={hsCode}
-              onChange={(e) => setHsCode(e.target.value)}
-              className="input-field w-full"
-              placeholder="例: 1604.31.00"
-            />
-          </div>
-          <div>
-            {loading ? (
-              <button
-                type="button"
-                onClick={onStop}
-                className="w-full flex items-center justify-center gap-2 bg-red-700 hover:bg-red-800 text-white font-medium py-2 px-4 rounded transition-colors disabled:opacity-50"
-              >
-                <div className="w-4 h-4 border-2 border-caviar-ivory border-t-transparent rounded-full animate-spin" />
-                停止搜索
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={(!keyword.trim() && !hsCode.trim())}
-                className="btn-primary w-full disabled:opacity-40"
-              >
-                {allDone ? (
-                  '🔄 继续搜索待搜国家'
-                ) : (
-                  '🔍 开始搜索'
-                )}
-              </button>
-            )}
-          </div>
-        </div>
-      </form>
-
-      {/* 国家搜索进度 */}
-      <CountryProgress searchProgress={searchProgress || {}} onReset={onResetProgress} />
-
-      {/* 搜索进度条（搜索中） */}
-      <SearchProgress seconds={progress} currentCountry={currentCountry} partialImportedCount={partialImportedCount} />
-
-      {/* 全部国家搜完了 */}
-      {allDone && !loading && !results.length && (
-        <div className="card text-center py-8">
-          <p className="text-caviar-muted mb-2">所有国家已搜索完毕</p>
-          <p className="text-xs text-caviar-muted">点击上方"继续搜索待搜国家"可重新搜索，或使用"重置进度"从头开始</p>
-        </div>
-      )}
-
-      {/* 搜索结果 */}
-      {results && results.length > 0 && (
-        <div className="card">
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-            <h3 className="text-caviar-cream font-display text-base">
-              搜索结果 ({results.length}) {partialImportedCount > 0 && <span className="text-caviar-gold text-xs ml-2">已入库 {partialImportedCount} 家</span>}
-            </h3>
-
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 cursor-pointer text-xs text-caviar-muted hover:text-caviar-cream transition-colors select-none">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected }}
-                  onChange={toggleAll}
-                  className="w-3.5 h-3.5 rounded border-caviar-sienna/40 bg-caviar-dark accent-caviar-gold cursor-pointer"
-                />
-                全选
-              </label>
-
-              {selectedCount > 0 && (
-                <button
-                  onClick={onBatchImport}
-                  disabled={batchImporting}
-                  className="btn-primary text-sm flex items-center gap-1.5"
-                >
-                  {batchImporting ? (
-                    <>
-                      <div className="w-3.5 h-3.5 border-2 border-caviar-ivory border-t-transparent rounded-full animate-spin" />
-                      导入中...
-                    </>
-                  ) : (
-                    <>📥 导入客户池 ({selectedCount})</>
-                  )}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* 批量导入结果提示 */}
-          {batchImportResult && (
-            <div className={`mb-4 p-3 rounded-lg text-sm flex items-center justify-between ${
-              batchImportResult.failed === 0
-                ? 'bg-emerald-900/20 border border-emerald-700/30 text-emerald-400'
-                : 'bg-amber-900/20 border border-amber-700/30 text-amber-400'
-            }`}>
-              <span>
-                ✅ 成功导入 <strong>{batchImportResult.imported}</strong> 条
-                {batchImportResult.skipped > 0 && ` · ⊘ 跳过 ${batchImportResult.skipped} 条（已在库中）`}
-                {batchImportResult.failed > 0 && ` · ✗ 失败 ${batchImportResult.failed} 条`}
-              </span>
-              <button
-                onClick={() => onBatchImport && onBatchImport(null, true)}
-                className="text-xs underline hover:no-underline"
-              >
-                清除
-              </button>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            {results.slice(0, showCount).map((item, idx) => {
-              const score = scores?.[idx]
-              const isScoringThis = scoringIdx === idx
-              const itemAdded = isAdded(item)
-              const itemSelected = isSelected(item, idx)
-
-              return (
-                <div
-                  key={idx}
-                  className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
-                    itemAdded
-                      ? 'bg-emerald-900/10 border border-emerald-700/20 opacity-60'
-                      : itemSelected
-                        ? 'bg-caviar-gold/5 border border-caviar-gold/30'
-                        : 'bg-caviar-dark/40 border border-caviar-sienna/15 hover:border-caviar-cream/20'
-                  }`}
-                >
-                  {!itemAdded && (
-                    <input
-                      type="checkbox"
-                      checked={itemSelected}
-                      onChange={() => toggleItem(item, idx)}
-                      className="w-3.5 h-3.5 flex-shrink-0 rounded border-caviar-sienna/40 bg-caviar-dark accent-caviar-gold cursor-pointer"
-                    />
-                  )}
-                  {itemAdded && <div className="w-3.5 h-3.5 flex-shrink-0" />}
-
-                  <div className="flex-shrink-0 w-14 text-center">
-                    {itemAdded ? (
-                      <span className="text-emerald-400 text-xs">✅ 已入库</span>
-                    ) : isScoringThis ? (
-                      <div className="w-8 h-8 mx-auto border-2 border-caviar-gold border-t-transparent rounded-full animate-spin" />
-                    ) : score ? (
-                      <ScoreBadge score={score} />
-                    ) : (
-                      <button
-                        onClick={() => onScoreOne && onScoreOne(item, idx)}
-                        className="text-caviar-muted hover:text-caviar-gold text-xs transition-colors"
-                        title="点击评分"
-                      >
-                        ⭐ 评分
-                      </button>
-                    )}
-                    {score && !itemAdded && <ScoreDims score={score} />}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <p className="text-caviar-cream font-medium truncate">
-                      {item.company_name_en || item.company_name}
-                    </p>
-                    {item.website && (
-                      <p className="text-caviar-muted text-xs truncate mt-0.5">
-                        {item.website_verified ? 
-                          <span className="text-green-400" title="网站已验证可达">✓</span> : 
-                          <span className="text-yellow-500" title="未验证">~</span>
-                        } {item.website}
-                      </p>
-                    )}
-                    {item.snippet && (
-                      <p className="text-caviar-muted text-xs mt-1 line-clamp-1">{item.snippet}</p>
-                    )}
-                    {item.country && (
-                      <span className="inline-block mt-1 text-[10px] text-caviar-gold/70 bg-caviar-gold/10 px-1.5 py-0.5 rounded">
-                        🌍 {item.country}
-                      </span>
-                    )}
-                  </div>
-
-                  {itemAdded ? (
-                    <span className="text-emerald-400 text-xs py-1.5 px-3 flex-shrink-0">已添加</span>
-                  ) : (
-                    <button
-                      onClick={() => onAddCustomer && onAddCustomer(item, idx)}
-                      disabled={isScoringThis}
-                      className="btn-secondary text-xs py-1.5 px-3 flex-shrink-0 disabled:opacity-40"
-                    >
-                      + 添加
-                    </button>
-                  )}
-                </div>
-              )
-            })}
-
-            {/* 分页：Load More */}
-            {results.length > showCount && (
-              <div className="text-center mt-4">
-                <button
-                  onClick={() => setShowCount(prev => prev + 20)}
-                  className="btn-secondary text-sm px-6 py-2"
-                >
-                  加载更多（当前显示 {showCount} / 共 {results.length}）
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {results && results.length === 0 && !loading && !progress && (
-        <div className="card text-center py-12 text-caviar-muted">
-          请输入关键词开始搜索
-        </div>
-      )}
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
     </div>
   )
 }

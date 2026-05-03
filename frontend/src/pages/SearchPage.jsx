@@ -1,512 +1,88 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import SearchRunner from '../components/SearchRunner'
-import { runSearch, createCustomer, calculateScore, getCustomers, importSearchResults, resetSearchProgress, checkResume, getSearchStatus } from '../api'
 
 export default function SearchPage() {
-  const [loading, setLoading] = useState(false)
-  const [results, setResults] = useState([])
-  const [scores, setScores] = useState({})   // { idx: score_result }
-  const [scoringIdx, setScoringIdx] = useState(null)
-  const [error, setError] = useState('')
-  const [searchSeconds, setSearchSeconds] = useState(0)
-  const [currentCountry, setCurrentCountry] = useState('')
-  const [addedIds, setAddedIds] = useState(new Set())     // 已添加的客户名
-  const [selectedItems, setSelectedItems] = useState(new Set())
-  const [batchImporting, setBatchImporting] = useState(false)
-  const [batchImportResult, setBatchImportResult] = useState(null)
-  // 增量搜索状态：哪些国家已搜完，哪些待搜
-  const [searchProgress, setSearchProgress] = useState({ completed_countries: [], pending_countries: [] })
-  // 当前搜索关键词（用于重置时传递正确key）
-  const [currentKeyword, setCurrentKeyword] = useState('')
-  // 断线恢复：上次任务的 task_id（持久化到 localStorage）
-  const [lastTaskId, setLastTaskId] = useState(() => localStorage.getItem('search_task_id') || '')
-  // 断线恢复：检测到的可恢复会话
-  const [resumableSession, setResumableSession] = useState(null) // { task_id, reason, message, completed_countries, ... }
-  // 已导入的客户数量（用于显示实时进度）
-  const [partialImportedCount, setPartialImportedCount] = useState(0)
+  const [product, setProduct] = useState('caviar')
+  const [keyword, setKeyword] = useState('')
+  const [selectedCountries, setSelectedCountries] = useState(['France', 'Spain', 'Italy', 'Germany', 'Japan'])
+  const [started, setStarted] = useState(false)
 
-  // ── 轮询控制 refs（避免闭包陷阱）──────────────────────────────────────────
-  const pollingRef = useRef(null)   // { taskId, abortController, seconds, tick }
+  const tier1 = ['France','USA','Italy','Germany','Spain','Japan','United Kingdom','Switzerland','UAE','Netherlands','Belgium','Australia','Canada','Singapore','Hong Kong']
 
-  // ── 轮询 effect：组件卸载时自动停止 ───────────────────────────────────────
-  useEffect(() => {
-    return () => {
-      // 组件卸载时：停止计时器 + 标记 stopped → 循环下次迭代发现即退出
-      if (pollingRef.current) {
-        pollingRef.current.stopped.value = true
-        pollingRef.current.getAbort()?.abort()
-        pollingRef.current = null
-      }
-    }
-  }, [])
-
-  // ── 页面加载时：自动检测是否有可恢复的搜索会话 ───────────────────────────
-  useEffect(() => {
-    // 从 localStorage 读取上次关键词
-    const savedKeyword = localStorage.getItem('search_keyword') || ''
-    const savedHsCode = localStorage.getItem('search_hscode') || ''
-    if (savedKeyword) setCurrentKeyword(savedKeyword)
-
-    if (!savedKeyword) return
-
-    checkResume({ product_name: savedKeyword, hs_code: savedHsCode })
-      .then(res => {
-        const data = res?.data?.data
-        if (data?.resumable) {
-          setResumableSession(data)
-          // 更新进度显示
-          setSearchProgress({
-            completed_countries: data.completed_countries || [],
-            pending_countries: data.pending_countries || [],
-          })
-          if (data.current_country) setCurrentCountry(data.current_country)
-          if (data.imported_count) setPartialImportedCount(data.imported_count)
-        }
-      })
-      .catch(() => {})
-  }, [])
-
-  // ── 停止轮询 ──────────────────────────────────────────────────────────
-  const stopPolling = useCallback(() => {
-    if (pollingRef.current) {
-      pollingRef.current.stopped.value = true
-      pollingRef.current.getAbort()?.abort()
-      pollingRef.current = null
-    }
-    setSearchSeconds(0)
-    setLoading(false)
-  }, [])
-
-  const handleSearch = useCallback(async (params) => {
-    // ── 停掉上一个轮询 ─────────────────────────────────────────────────────
-    stopPolling()
-
-    setLoading(true)
-    setError('')
-    setResults([])
-    setScores({})
-    setAddedIds(new Set())
-    setSelectedItems(new Set())
-    setBatchImportResult(null)
-    setCurrentCountry('')
-    setResumableSession(null)
-    setPartialImportedCount(0)
-
-    // 保存当前关键词（用于重置 + localStorage 持久化）
-    const kw = params.keyword || params.product_name || ''
-    const hs = params.hs_code || ''
-    setCurrentKeyword(kw)
-    localStorage.setItem('search_keyword', kw)
-    localStorage.setItem('search_hscode', hs)
-
-    try {
-      const res = await runSearch({
-        product_name: params.keyword || params.product_name || '',
-        hs_code: params.hs_code || '',
-        // 传递上次 task_id，支持断线恢复（后端会检测 DB 中的 RUNNING 会话并自动重启线程）
-        task_id: lastTaskId || undefined,
-      })
-
-      const taskData = res?.data || res
-
-      // 所有国家都搜完了
-      if (taskData?.status === 'all_completed') {
-        setSearchProgress({
-          completed_countries: taskData.completed_countries || [],
-          pending_countries: [],
-        })
-        setLoading(false)
-        return
-      }
-
-      const taskId = taskData?.task_id
-      if (!taskId) {
-        setError('搜索任务创建失败')
-        return
-      }
-
-      // 持久化 task_id 到 localStorage（断线后仍可恢复）
-      setLastTaskId(taskId)
-      localStorage.setItem('search_task_id', taskId)
-
-      // 更新前端显示的待搜国家
-      if (taskData?.pending_countries) {
-        setSearchProgress({
-          completed_countries: taskData.completed_countries || [],
-          pending_countries: taskData.pending_countries,
-        })
-      }
-
-      // ── 轮询控制状态 ─────────────────────────────────────────────────────────
-      const stopped = { value: false }
-      let tick = null
-      let abortController = null
-      let seconds = 0
-      let data = []
-
-      // ── 保存到 ref（供外部 cleanup 访问）─────────────────────────────────────
-      pollingRef.current = { taskId, stopped, getAbort: () => abortController }
-
-      // ── 如果是恢复搜索，先显示已有进度 ────────────────────────────────────
-      if (taskData?.resumed) {
-        setCurrentCountry(taskData.current_country || '')
-        setPartialImportedCount(taskData.imported_count || 0)
-        setSearchProgress({
-          completed_countries: taskData.completed_countries || [],
-          pending_countries: taskData.pending_countries || [],
-        })
-      }
-
-      // ── 计时器 ──────────────────────────────────────────────────────────────
-      tick = setInterval(() => {
-        seconds += 1
-        setSearchSeconds(seconds)
-      }, 1000)
-
-      // ── 轮询循环（最多 2 小时，随时可被 stopped.value == true 打断）────────────
-      outer:
-      for (let i = 0; i < 7200; i++) {
-        // ★ 每个循环开始前必须检查停止标记
-        if (stopped.value) break
-
-        // 等待 1 秒（可被组件卸载打断）
-        try {
-          await new Promise(resolve => setTimeout(resolve, 1000))
-        } catch (_) { break }
-        if (stopped.value) break
-
-        // 拉取状态
-        try {
-          const statusRes = await getSearchStatus(taskId)
-          if (stopped.value) break
-          const status = statusRes?.data
-
-          // 实时更新国家进度
-          if (status?.current_country) {
-            setCurrentCountry(status.current_country)
-            setSearchProgress(prev => {
-              const done = new Set(prev.completed_countries)
-              done.add(status.current_country)
-              const pending = prev.pending_countries.filter(c => c !== status.current_country)
-              return { completed_countries: [...done], pending_countries: pending }
-            })
-          }
-          // 实时更新已导入数（DB 轮询时也要更新）
-          if (status?.imported_count !== undefined) {
-            setPartialImportedCount(status.imported_count)
-          }
-          if (status?.status === 'completed') {
-            data = status.results || []
-            break
-          }
-          if (status?.status === 'failed') {
-            throw new Error(status.error || status.error_message || '搜索失败')
-          }
-          if (i > 0 && i % 30 === 0) {
-            console.log(`[SearchPage] 进行中 ${i}s，已完成 ${status?.country_index || 0}/${status?.total_countries || '?'} 个国家`)
-          }
-        } catch (err) {
-          if (stopped.value) break
-          setError(err.message || '网络错误')
-          break
-        }
-      }
-
-      // ── 清理本地计时器 ───────────────────────────────────────────────────────
-      if (tick) { clearInterval(tick); tick = null }
-      // 防止 useEffect cleanup 与 finally 重复清理
-      if (pollingRef.current?.taskId === taskId) { pollingRef.current = null }
-
-      // 如果被停止，安静退出，不更新结果
-      if (stopped.value) return
-
-      // 搜索完成 → 清除 localStorage 中的 task_id（下次搜索会生成新 ID）
-      setLastTaskId('')
-      localStorage.removeItem('search_task_id')
-
-      setSearchSeconds(0)
-      if (!data.length) {
-        // 有 partialImportedCount → 说明中途结果已入库
-        if (partialImportedCount > 0) {
-          setError(`已导入 ${partialImportedCount} 家客户到客户池，搜索继续中...关闭页面后数据已保存，可随时返回继续`)
-        } else {
-          setError(`搜索进行中（${seconds}秒），可关闭页面稍后从历史记录查看结果`)
-        }
-        return
-      }
-
-      setResults(data)
-
-      // ── 自动导入全部结果到客户池（同步执行，入库即永久保存）──────────────────
-      try {
-        const importRes = await importSearchResults(data)
-        const importResult = importRes?.data || importRes
-        const importedNames = new Set(
-          (importResult.results || [])
-            .filter(r => r.status === 'imported')
-            .map(r => r.company_name_en)
-        )
-        if (importedNames.size > 0) {
-          setAddedIds(prev => new Set([...prev, ...importedNames]))
-        }
-        // 明确展示导入结果
-        setBatchImportResult({
-          imported: importResult.imported || 0,
-          skipped: importResult.skipped || 0,
-          failed: importResult.failed || 0,
-        })
-      } catch (_) {
-        // 导入失败不影响评分，继续执行
-      }
-
-      // 前 5 条自动评分
-      const quickBatch = data.slice(0, 5).map((item, idx) => ({
-        idx,
-        data: {
-          company_name_en: item.company_name_en || item.company_name || '',
-          description: item.snippet || item.description || '',
-          website: item.website || '',
-          country: item.country || '',
-        }
-      }))
-      for (const { idx, data: companyData } of quickBatch) {
-        try {
-          const scoreRes = await calculateScore({ company_data: companyData })
-          const score = scoreRes?.data || scoreRes
-          if (score && score.total_score !== undefined) {
-            setScores(prev => ({ ...prev, [idx]: score }))
-          }
-        } catch (_) {}
-      }
-    } catch (err) {
-      setError(err.message || '搜索失败，请重试')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const handleScoreOne = useCallback(async (item, idx) => {
-    setScoringIdx(idx)
-    try {
-      const scoreRes = await calculateScore({
-        company_data: {
-          company_name_en: item.company_name_en || item.company_name || '',
-          description: item.snippet || item.description || '',
-          website: item.website || '',
-          country: item.country || '',
-        }
-      })
-      const score = scoreRes?.data || scoreRes
-      if (score && score.total_score !== undefined) {
-        setScores(prev => ({ ...prev, [idx]: score }))
-      }
-    } catch (_) {
-    } finally {
-      setScoringIdx(null)
-    }
-  }, [])
-
-  const handleAddCustomer = useCallback(async (item, idx) => {
-    const name = item.company_name_en || item.company_name || ''
-    if (!name) {
-      alert('公司名称为空，无法添加')
-      return
-    }
-    if (addedIds.has(name)) {
-      alert(`⚠️ "${name}" 已添加，无需重复操作`)
-      return
-    }
-
-    try {
-      const res = await getCustomers({ page_size: 200, keyword: name })
-      const list = res?.data?.items || []
-      const isDuplicate = list.some(
-        c => c.company_name_en?.toLowerCase() === name.toLowerCase()
-          || c.company_name_local?.toLowerCase() === name.toLowerCase()
-      )
-      if (isDuplicate) {
-        alert(`⚠️ "${name}" 已在客户库中，跳过添加`)
-        setAddedIds(prev => new Set([...prev, name]))
-        return
-      }
-    } catch (_) {}
-
-    let scoreData = scores[idx]
-    if (!scoreData) {
-      setScoringIdx(idx)
-      try {
-        const scoreRes = await calculateScore({
-          company_data: {
-            company_name_en: name,
-            description: item.snippet || item.description || '',
-            website: item.website || '',
-            country: item.country || '',
-          }
-        })
-        scoreData = scoreRes?.data || scoreRes
-        if (scoreData && scoreData.total_score !== undefined) {
-          setScores(prev => ({ ...prev, [idx]: scoreData }))
-        }
-      } catch (_) {}
-      setScoringIdx(null)
-    }
-
-    try {
-      await createCustomer({
-        company_name_en: name,
-        website: item.website || '',
-        country_name: item.country || '',
-        notes: `来源：客户搜索\n描述：${item.snippet || item.description || ''}\n评分：${scoreData?.total_score ?? '待评分'}`,
-        search_source: 'customer_search',
-        is_collected: true,
-      })
-      setAddedIds(prev => new Set([...prev, name]))
-      const key = item.company_name_en || item.company_name || `__idx_${idx}__`
-      setSelectedItems(prev => {
-        const next = new Set(prev)
-        next.delete(key)
-        return next
-      })
-      alert(`✅ 已添加：${name}`)
-    } catch (err) {
-      alert('添加失败: ' + err.message)
-    }
-  }, [addedIds, scores])
-
-  const handleBatchImport = useCallback(async (_, clearFlag) => {
-    if (clearFlag) {
-      setBatchImportResult(null)
-      return
-    }
-
-    const itemsToImport = results
-      .map((item, idx) => ({ item, idx }))
-      .filter(({ item, idx }) => {
-        const key = item.company_name_en || item.company_name || `__idx_${idx}__`
-        return selectedItems.has(key) && !addedIds.has(item.company_name_en || item.company_name || '')
-      })
-      .map(({ item }) => item)
-
-    if (itemsToImport.length === 0) {
-      alert('请先选择要导入的客户')
-      return
-    }
-
-    if (!window.confirm(`确定要导入 ${itemsToImport.length} 家客户到客户池吗？\n已在库中的客户会被自动跳过。`)) {
-      return
-    }
-
-    setBatchImporting(true)
-    try {
-      const res = await importSearchResults(itemsToImport)
-      const result = res?.data || res
-
-      const importedNames = new Set(
-        (result.results || [])
-          .filter(r => r.status === 'imported')
-          .map(r => r.company_name_en)
-      )
-      if (importedNames.size > 0) {
-        setAddedIds(prev => new Set([...prev, ...importedNames]))
-        setSelectedItems(new Set())
-      }
-
-      setBatchImportResult({
-        imported: result.imported || 0,
-        skipped: result.skipped || 0,
-        failed: result.failed || 0,
-      })
-
-      if (result.imported === 0 && result.skipped > 0) {
-        alert(`⚠️ 全部 ${result.skipped} 条已在客户库中，无需重复导入`)
-      } else {
-        alert(`✅ 成功导入 ${result.imported} 条客户${result.skipped > 0 ? `，跳过 ${result.skipped} 条（已在库）` : ''}${result.failed > 0 ? `，失败 ${result.failed} 条` : ''}`)
-      }
-    } catch (err) {
-      alert('批量导入失败: ' + err.message)
-    } finally {
-      setBatchImporting(false)
-    }
-  }, [results, selectedItems, addedIds])
-
-  const handleResetProgress = useCallback(async () => {
-    if (!window.confirm('确定要重置搜索进度吗？这将清除已搜国家记录，下次搜索会从头开始。')) return
-    try {
-      // 用当前关键词的key重置，确保能正确删除记录
-      await resetSearchProgress({ product_name: currentKeyword, hs_code: '' })
-      setSearchProgress({ completed_countries: [], pending_countries: [] })
-      alert('✅ 进度已重置，下次搜索将从头开始')
-    } catch (err) {
-      // 即使后端报错，前端状态也清空，用户体验优先
-      setSearchProgress({ completed_countries: [], pending_countries: [] })
-      alert('⚠️ 重置完成（' + (err.message || '') + '）')
-    }
-  }, [currentKeyword])
+  const toggle = (code) => {
+    setSelectedCountries(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    )
+  }
 
   return (
-    <div className="space-y-6">
-      {/* ── 断线恢复 Banner ─────────────────────────────────────────── */}
-      {resumableSession && !loading && (
-        <div className="card border border-caviar-gold/40 bg-caviar-gold/5">
-          <div className="flex items-start gap-3">
-            <div className="text-2xl flex-shrink-0">🔄</div>
-            <div className="flex-1 min-w-0">
-              <p className="text-caviar-gold font-medium text-sm mb-1">
-                检测到进行中的搜索会话
-              </p>
-              <p className="text-caviar-muted text-xs mb-3">
-                {resumableSession.message}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => {
-                    setResumableSession(null)
-                    // 用上次的关键词触发搜索（会自动传入 lastTaskId 触发后端恢复）
-                    handleSearch({ keyword: resumableSession.product_name || currentKeyword, hs_code: resumableSession.hs_code || '' })
-                  }}
-                  className="btn-primary text-sm"
-                >
-                  🔍 继续搜索（剩余 {resumableSession.pending_countries?.length || 0} 个国家）
-                </button>
-                <button
-                  onClick={() => setResumableSession(null)}
-                  className="btn-secondary text-sm"
-                >
-                  忽略，开始新搜索
-                </button>
-              </div>
+    <div style={{ fontFamily: "'Inter', -apple-system, sans-serif" }}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 600, letterSpacing: '-0.03em', color: '#171717', marginBottom: 8 }}>
+        Search
+      </h1>
+      <p style={{ fontSize: 14, color: '#808080', marginBottom: 24 }}>
+        AI-powered B2B customer discovery for premium caviar trade.
+      </p>
+
+      {!started ? (
+        <div className="vercel-card" style={{ padding: '24px', marginBottom: 24 }}>
+          <span className="vercel-mono" style={{ display: 'block', marginBottom: 16 }}>Configuration</span>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#808080', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                Product
+              </label>
+              <input className="vercel-input" value={product} onChange={e => setProduct(e.target.value)}
+                placeholder="caviar" style={{ width: '100%' }} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#808080', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                Keyword (optional)
+              </label>
+              <input className="vercel-input" value={keyword} onChange={e => setKeyword(e.target.value)}
+                placeholder="importer distributor" style={{ width: '100%' }} />
             </div>
           </div>
-        </div>
-      )}
 
-      {error && (
-        <div className="p-3 bg-red-900/20 border border-red-700/30 rounded-lg text-red-400 text-sm flex items-center gap-2">
-          <span>{error}</span>
-        </div>
-      )}
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: '#808080', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+            Countries ({selectedCountries.length} selected)
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
+            {tier1.map(c => {
+              const sel = selectedCountries.includes(c)
+              return (
+                <button key={c} onClick={() => toggle(c)} style={{
+                  padding: '4px 12px',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  fontSize: 13,
+                  fontWeight: sel ? 500 : 400,
+                  fontFamily: "'Inter', sans-serif",
+                  color: sel ? '#ffffff' : '#666666',
+                  background: sel ? '#171717' : '#f5f5f5',
+                  cursor: 'pointer',
+                  transition: 'all 0.1s',
+                }}>
+                  {c}
+                </button>
+              )
+            })}
+          </div>
 
-      <SearchRunner
-        onRun={handleSearch}
-        onStop={stopPolling}
-        onAddCustomer={handleAddCustomer}
-        loading={loading}
-        progress={searchSeconds}
-        results={results}
-        scores={scores}
-        scoringIdx={scoringIdx}
-        onScoreOne={handleScoreOne}
-        addedIds={addedIds}
-        selectedItems={selectedItems}
-        onSelectionChange={setSelectedItems}
-        onBatchImport={handleBatchImport}
-        batchImporting={batchImporting}
-        batchImportResult={batchImportResult}
-        currentCountry={currentCountry}
-        searchProgress={searchProgress}
-        onResetProgress={handleResetProgress}
-        partialImportedCount={partialImportedCount}
-      />
+          <button className="vercel-btn-dark" onClick={() => setStarted(true)}
+            style={{ fontSize: 15, padding: '10px 24px' }}>
+            Start Search
+          </button>
+        </div>
+      ) : (
+        <SearchRunner
+          product={product}
+          keyword={keyword}
+          countries={selectedCountries}
+          onReset={() => setStarted(false)}
+        />
+      )}
     </div>
   )
 }
