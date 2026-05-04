@@ -17,8 +17,8 @@ export default function StatsDashboard() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
         <KpiCard label="Total Customers" value={stats.total_customers ?? 0} />
         <KpiCard label="A/B Grade" value={stats.high_score_count ?? 0} color="#533afd" />
-        <KpiCard label="Emails Sent" value={stats.emails_sent ?? 0} color="#15be53" />
-        <KpiCard label="Active Searches" value={stats.active_searches ?? 0} color="#64748d" />
+        <KpiCard label="Monthly Emails" value={stats.monthly_emails ?? 0} color="#15be53" />
+        <KpiCard label="Open Rate" value={(stats.email_open_rate ? Math.round(stats.email_open_rate * 100) + '%' : '—')} color="#64748d" />
       </div>
 
       {/* Growth Chart */}

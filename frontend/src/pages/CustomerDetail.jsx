@@ -294,9 +294,6 @@ export default function CustomerDetail() {
                     💼 查看领英
                   </a>
                 )}
-                <button onClick={() => navigate(`/customers/${id}/edit`)} className="btn-secondary w-full">
-                  ✏️ 编辑客户
-                </button>
               </div>
             </div>
           </div>
