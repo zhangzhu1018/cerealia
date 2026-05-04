@@ -1,180 +1,185 @@
-/* ── Vercel Design System ─────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..600&family=JetBrains+Mono:wght@400;500&display=swap');
+/* ── Stripe Design System ──────────────────────────────────────────────── */
 
 :root {
-  /* Colors */
-  --vercel-black: #171717;
-  --pure-white: #ffffff;
-  --gray-600: #4d4d4d;
-  --gray-500: #666666;
-  --gray-400: #808080;
-  --gray-100: #ebebeb;
-  --gray-50: #fafafa;
-  --link-blue: #0072f5;
-  --focus-blue: #0a72ef;
-  --ship-red: #ff5b4f;
-  --preview-pink: #de1d8d;
+  /* Brand */
+  --purple: #533afd;
+  --purple-hover: #4434d4;
+  --purple-light: #b9b9f9;
+  --navy: #061b31;
+  --dark-navy: #0d253d;
+  --brand-dark: #1c1e54;
 
-  /* Shadow-as-border */
-  --shadow-border: 0 0 0 1px rgba(0,0,0,0.08);
-  --shadow-card: 0 0 0 1px rgba(0,0,0,0.08), 0 2px 2px rgba(0,0,0,0.04), 0 0 0 1px #fafafa;
-  --shadow-hover: 0 0 0 1px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.06);
+  /* Text */
+  --heading: #061b31;
+  --body: #64748d;
+  --label: #273951;
+
+  /* Surfaces & Borders */
+  --white: #ffffff;
+  --border: #e5edf5;
+  --border-purple: #b9b9f9;
+
+  /* Shadow (blue-tinted!) */
+  --shadow-card: rgba(50,50,93,0.25) 0px 30px 45px -30px, rgba(0,0,0,0.1) 0px 18px 36px -18px;
+  --shadow-ambient: rgba(23,23,23,0.08) 0px 15px 35px 0px;
+  --shadow-hover: rgba(50,50,93,0.3) 0px 30px 50px -20px, rgba(0,0,0,0.12) 0px 20px 40px -15px;
+
+  /* Accent */
+  --green: #15be53;
+  --green-text: #108c3d;
+  --magenta: #f96bee;
 
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-
-  /* Spacing */
-  --spacing-8: 8px;
-  --radius-6: 6px;
-  --radius-8: 8px;
-  --radius-12: 12px;
-  --radius-pill: 9999px;
+  --radius: 6px;
 }
 
-/* Reset */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
   font-family: var(--font-sans);
-  background: var(--pure-white);
-  color: var(--vercel-black);
+  background: var(--white);
+  color: var(--body);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   font-size: 16px;
-  font-weight: 400;
+  font-weight: 300;
   line-height: 1.5;
 }
 
-/* Typography */
-h1, h2, h3, h4 { font-weight: 600; color: var(--vercel-black); }
-h1 { font-size: 2rem; letter-spacing: -0.04em; line-height: 1.15; }
-h2 { font-size: 1.5rem; letter-spacing: -0.03em; line-height: 1.25; }
-h3 { font-size: 1.25rem; letter-spacing: -0.02em; line-height: 1.33; }
+/* Typography — Stripe: weight 300 is the brand voice */
+h1, h2, h3 { font-weight: 300; color: var(--heading); }
+h1 { font-size: 2rem; letter-spacing: -0.02em; line-height: 1.15; }
+h2 { font-size: 1.5rem; letter-spacing: -0.015em; line-height: 1.2; }
+h3 { font-size: 1.125rem; letter-spacing: -0.01em; }
 
-a { color: var(--link-blue); text-decoration: none; }
-a:hover { text-decoration: underline; }
+a { color: var(--purple); text-decoration: none; font-weight: 400; }
+a:hover { color: var(--purple-hover); }
 
-/* Vercel Card */
-.vercel-card {
-  background: var(--pure-white);
-  border-radius: var(--radius-8);
+/* Stripe Card — blue-tinted shadow */
+.stripe-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   box-shadow: var(--shadow-card);
-  transition: box-shadow 0.15s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
-.vercel-card:hover {
+.stripe-card:hover {
   box-shadow: var(--shadow-hover);
+  border-color: var(--border-purple);
 }
 
-/* Vercel Button - Primary (dark) */
-.vercel-btn-dark {
-  background: var(--vercel-black);
-  color: var(--pure-white);
+/* Primary Button */
+.stripe-btn {
+  background: var(--purple);
+  color: var(--white);
   border: none;
-  border-radius: var(--radius-6);
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 500;
+  border-radius: var(--radius);
+  padding: 10px 20px;
+  font-size: 15px;
+  font-weight: 400;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: background 0.15s, transform 0.1s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
-.vercel-btn-dark:hover { opacity: 0.85; }
+.stripe-btn:hover { background: var(--purple-hover); transform: translateY(-1px); }
+.stripe-btn:active { transform: translateY(0); }
 
-/* Vercel Button - Ghost (white shadow-bordered) */
-.vercel-btn-ghost {
-  background: var(--pure-white);
-  color: var(--vercel-black);
-  border: none;
-  border-radius: var(--radius-6);
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 500;
+/* Ghost Button */
+.stripe-btn-ghost {
+  background: transparent;
+  color: var(--purple);
+  border: 1px solid var(--border-purple);
+  border-radius: var(--radius);
+  padding: 9px 19px;
+  font-size: 15px;
+  font-weight: 400;
   font-family: var(--font-sans);
-  box-shadow: var(--shadow-border);
   cursor: pointer;
   transition: background 0.15s;
 }
-.vercel-btn-ghost:hover { background: var(--gray-50); }
-
-/* Pill badge */
-.vercel-pill {
-  display: inline-flex;
-  align-items: center;
-  background: #ebf5ff;
-  color: #0068d6;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 2px 10px;
-  border-radius: var(--radius-pill);
-  font-family: var(--font-sans);
-}
-
-/* Mono label */
-.vercel-mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
-  color: var(--gray-500);
-  letter-spacing: 0.02em;
-}
+.stripe-btn-ghost:hover { background: rgba(83,58,253,0.05); }
 
 /* Input */
-.vercel-input {
-  border: none;
-  box-shadow: var(--shadow-border);
-  border-radius: var(--radius-6);
-  padding: 8px 12px;
-  font-size: 14px;
+.stripe-input {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 15px;
+  font-weight: 300;
   font-family: var(--font-sans);
-  color: var(--vercel-black);
-  background: var(--pure-white);
+  color: var(--heading);
+  background: var(--white);
   outline: none;
-  transition: box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
 }
-.vercel-input:focus {
-  box-shadow: 0 0 0 2px var(--focus-blue);
+.stripe-input:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(83,58,253,0.1);
 }
+.stripe-input::placeholder { color: var(--body); }
 
 /* Table */
-.vercel-table {
+.stripe-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
 }
-.vercel-table th {
+.stripe-table th {
   text-align: left;
-  color: var(--gray-500);
-  font-weight: 500;
+  font-weight: 400;
   font-size: 12px;
+  color: var(--body);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--gray-100);
+  border-bottom: 1px solid var(--border);
 }
-.vercel-table td {
-  padding: 12px 16px;
-  color: var(--vercel-black);
-  border-bottom: 1px solid var(--gray-100);
+.stripe-table td {
+  padding: 14px 16px;
+  color: var(--heading);
+  font-weight: 300;
+  border-bottom: 1px solid var(--border);
 }
-.vercel-table tr:hover td { background: var(--gray-50); }
+.stripe-table tr:hover td { background: rgba(83,58,253,0.02); }
+
+/* Pill / Badge */
+.stripe-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 400;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.stripe-pill--purple {
+  background: rgba(83,58,253,0.08);
+  color: var(--purple);
+  border: 1px solid rgba(83,58,253,0.2);
+}
+.stripe-pill--green {
+  background: rgba(21,190,83,0.15);
+  color: var(--green-text);
+  border: 1px solid rgba(21,190,83,0.3);
+}
+.stripe-pill--neutral {
+  background: var(--white);
+  color: var(--heading);
+  border: 1px solid var(--border);
+}
 
 /* Divider */
-.vercel-divider {
+.stripe-hr {
   border: none;
-  border-top: 1px solid var(--gray-100);
+  border-top: 1px solid var(--border);
   margin: 24px 0;
 }
 
-/* Page layout */
-.vercel-page {
-  padding: 32px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--gray-100); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }

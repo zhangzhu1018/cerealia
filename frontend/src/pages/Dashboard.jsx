@@ -3,19 +3,16 @@ import StatsDashboard from '../components/StatsDashboard'
 export default function Dashboard() {
   return (
     <div style={{ fontFamily: "'Inter', -apple-system, sans-serif" }}>
-      {/* Hero */}
-      <div className="vercel-card" style={{ padding: '32px', marginBottom: 24 }}>
-        <span className="vercel-mono">Welcome Back</span>
-        <h1 style={{ fontSize: '2rem', fontWeight: 600, letterSpacing: '-0.04em', margin: '8px 0 4px', color: '#171717' }}>
+      <div style={{ marginBottom: 32 }}>
+        <h1 style={{ fontSize: 32, fontWeight: 300, letterSpacing: '-0.64px', color: '#061b31', margin: '0 0 8px' }}>
           Cerealia Caviar
         </h1>
-        <p style={{ fontSize: 16, color: '#4d4d4d', lineHeight: 1.6, maxWidth: 560 }}>
+        <p style={{ fontSize: 16, fontWeight: 300, color: '#64748d', lineHeight: 1.5, maxWidth: 600 }}>
           Premium sturgeon caviar B2B CRM — 0 additives, 48h hand-crafted, HACCP/ISO certified.
-          Exporting to Michelin-star restaurants across Europe, Middle East & Asia.
+          Serving Michelin-star restaurants worldwide.
         </p>
       </div>
 
-      {/* Stats */}
       <StatsDashboard />
     </div>
   )

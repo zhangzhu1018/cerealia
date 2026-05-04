@@ -1,95 +1,74 @@
-/**
- * Sidebar — Vercel white-minimal style
- * Fixed 220px, shadow-border, dark text on white
- */
 import { NavLink, useLocation } from 'react-router-dom'
 
 const links = [
-  { to: '/', label: '仪表盘' },
-  { to: '/customers', label: '客户' },
-  { to: '/search', label: '搜索' },
-  { to: '/emails', label: '邮件' },
-  { to: '/scoring', label: '评分' },
-  { to: '/activities', label: '动态' },
+  { to: '/', label: 'Dashboard' },
+  { to: '/customers', label: 'Customers' },
+  { to: '/search', label: 'Search' },
+  { to: '/emails', label: 'Emails' },
+  { to: '/scoring', label: 'Scoring' },
+  { to: '/activities', label: 'Activity' },
 ]
 
 export default function Sidebar() {
-  const location = useLocation()
+  const { pathname } = useLocation()
 
   return (
     <aside style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      width: 220,
-      height: '100vh',
+      position: 'fixed', top: 0, left: 0,
+      width: 232, height: '100vh',
       background: '#ffffff',
-      boxShadow: '0 0 0 1px rgba(0,0,0,0.06)',
-      display: 'flex',
-      flexDirection: 'column',
+      borderRight: '1px solid #e5edf5',
+      display: 'flex', flexDirection: 'column',
       zIndex: 40,
       fontFamily: "'Inter', -apple-system, sans-serif",
     }}>
       {/* Logo */}
-      <div style={{
-        padding: '24px 20px 16px',
-        borderBottom: '1px solid #ebebeb',
-      }}>
-        <span style={{
+      <div style={{ padding: '28px 24px 20px' }}>
+        <div style={{
           fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 14,
-          fontWeight: 600,
-          color: '#171717',
-          letterSpacing: '-0.02em',
+          fontSize: 15,
+          fontWeight: 500,
+          color: '#061b31',
+          letterSpacing: '-0.01em',
         }}>
           CEREALIA
-        </span>
-        <span style={{
-          display: 'block',
-          fontSize: 11,
-          color: '#808080',
-          fontWeight: 400,
-          marginTop: 2,
-        }}>
+        </div>
+        <div style={{ fontSize: 12, fontWeight: 300, color: '#64748d', marginTop: 3 }}>
           Caviar CRM
-        </span>
+        </div>
       </div>
 
-      {/* Navigation */}
-      <nav style={{ flex: 1, padding: '12px 12px' }}>
-        {links.map(link => {
-          const active = location.pathname === link.to
+      {/* Nav */}
+      <nav style={{ flex: 1, padding: '8px 16px' }}>
+        {links.map(l => {
+          const active = pathname === l.to
           return (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              style={{
-                display: 'block',
-                padding: '8px 12px',
-                marginBottom: 2,
-                borderRadius: 6,
-                fontSize: 14,
-                fontWeight: active ? 500 : 400,
-                color: active ? '#171717' : '#666666',
-                background: active ? '#fafafa' : 'transparent',
-                textDecoration: 'none',
-                transition: 'background 0.1s',
-              }}
-            >
-              {link.label}
+            <NavLink key={l.to} to={l.to} style={{
+              display: 'block',
+              padding: '8px 12px',
+              marginBottom: 2,
+              borderRadius: 6,
+              fontSize: 14,
+              fontWeight: active ? 400 : 300,
+              color: active ? '#533afd' : '#64748d',
+              background: active ? 'rgba(83,58,253,0.06)' : 'transparent',
+              textDecoration: 'none',
+              transition: 'background 0.1s',
+            }}>
+              {l.label}
             </NavLink>
           )
         })}
       </nav>
 
-      {/* Footer */}
       <div style={{
-        padding: '16px 20px',
-        borderTop: '1px solid #ebebeb',
+        padding: '16px 24px',
+        borderTop: '1px solid #e5edf5',
         fontSize: 11,
-        color: '#808080',
+        fontWeight: 300,
+        color: '#64748d',
       }}>
-        v2.0 · PythonAnywhere
+        PythonAnywhere
       </div>
     </aside>
   )
