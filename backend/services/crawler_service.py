@@ -24,6 +24,163 @@ def _verify_url(url: str, timeout: int = 3) -> bool:
         return False
 
 
+# ── 网页爬虫：提取邮箱/电话 ──────────────────────────────────────────
+_EMAIL_RE = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
+_PHONE_RE = re.compile(
+    r'(?:\+?\d{1,4}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,4}[\s.-]?\d{3,4}',
+)
+_PHONE_BLACKLIST = frozenset({'0000000000', '1234567890', '0123456789', '1111111111'})
+_CONTACT_PATHS = [
+    '', '/contact', '/contact-us', '/about', '/contacts',
+    '/contatti', '/contacto', '/kontakt', '/nous-contacter',
+    '/impressum', '/imprint', '/pages/contact', '/pages/contact-us',
+    '/en/contact', '/fr/contact', '/de/kontakt', '/es/contacto',
+]
+
+def _scrape_website_contacts(website_url, timeout=10):
+    """访问企业网站提取邮箱和电话。返回 {'email':'','phone':'','emails':[...],'phones':[...]}"""
+    if not website_url:
+        return {}
+    all_emails, all_phones = set(), set()
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8,de;q=0.7,es;q=0.6',
+    }
+    skip_domains = frozenset({'example.com', 'domain.com', 'test.com', 'email.com', 'mail.com', 'gmail.com', 'outlook.com', 'yahoo.com'})
+    url = website_url.rstrip('/')
+    bases = [f'https://{url}', f'http://{url}'] if not url.startswith('http') else [url]
+
+    for base in bases:
+        for path in _CONTACT_PATHS[:10]:
+            try:
+                target = f'{base}{path}' if path else base
+                req = urllib.request.Request(target, headers=headers)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    html = resp.read().decode('utf-8', errors='ignore')[:300000]
+                    for e in _EMAIL_RE.findall(html):
+                        e_low = e.lower()
+                        parts = e_low.split('@')
+                        if len(parts) == 2 and parts[1] not in skip_domains and 'example' not in e_low and '.png' not in e_low and '.jpg' not in e_low:
+                            all_emails.add(e)
+                    for m in re.findall(r'mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', html, re.IGNORECASE):
+                        all_emails.add(m)
+                    for p in _PHONE_RE.findall(html):
+                        digits = re.sub(r'\D', '', p)
+                        if 8 <= len(digits) <= 15 and digits not in _PHONE_BLACKLIST:
+                            all_phones.add(p)
+                if len(all_emails) >= 2:
+                    break
+            except Exception:
+                continue
+        if all_emails:
+            break
+
+    prefix = ['info@', 'sales@', 'contact@', 'export@', 'office@', 'hello@', 'mail@']
+    es = sorted(all_emails, key=lambda e: next((i for i, p in enumerate(prefix) if e.startswith(p.lower())), 99))
+    ps = sorted(all_phones, key=lambda p: (not p.startswith('+')), reverse=True)
+    return {'email': es[0] if es else '', 'emails': es, 'phone': ps[0] if ps else '', 'phones': ps}
+
+
+# ── 邮箱域名猜解 + SMTP 验证 ─────────────────────────────────────
+_COMMON_LOCAL_PARTS = [
+    'info', 'sales', 'contact', 'export', 'office', 'hello',
+    'mail', 'admin', 'support', 'enquiry', 'inquiry', 'orders',
+    'customerservice', 'management', 'general', 'team',
+]
+
+def _guess_and_verify_email(domain, company_name=''):
+    """
+    根据域名猜解常用邮箱地址。
+    返回: {'email': str, 'verified': bool}  已验证成功的邮箱优先
+    """
+    emails = []
+    # 从域名猜
+    for lp in _COMMON_LOCAL_PARTS:
+        emails.append(f'{lp}@{domain}')
+    # 从公司名猜
+    if company_name:
+        words = re.sub(r'[^a-z0-9\s]', '', company_name.lower()).split()
+        if len(words) >= 2:
+            emails.append(f'{words[0]}@{domain}')
+            emails.append(f'{words[0]}.{words[-1]}@{domain}')
+
+    # 尝试 SMTP 验证
+    import smtplib
+    for email in emails[:8]:
+        try:
+            # 简单尝试直连
+            with smtplib.SMTP(domain, 25, timeout=6) as smtp:
+                smtp.helo('verify.local')
+                smtp.mail('test@cerealia-caviar.com')
+                code, _ = smtp.rcpt(email)
+                if 200 <= code < 300:
+                    return {'email': email, 'verified': True}
+        except Exception:
+            continue
+
+    # SMTP 没验证成功的，返回第一个 info@ 作为候选
+    return {'email': emails[0] if emails else '', 'verified': False}
+
+
+# ── 批量邮箱猜解 ─────────────────────────────────────────────────
+def batch_guess_emails(limit=200, skip_existing=True):
+    """为没有邮箱的客户猜解邮箱地址。"""
+    from ..models import db, Customer
+    from urllib.parse import urlparse
+
+    query = Customer.query.filter(Customer.website != '', Customer.website.isnot(None))
+    if skip_existing:
+        query = query.filter(db.or_(Customer.email == '', Customer.email.is_(None)))
+    customers = query.order_by(Customer.background_score.desc()).limit(limit).all()
+    filled = 0
+
+    for c in customers:
+        try:
+            domain = urlparse(c.website or '').netloc
+            if not domain or '.' not in domain:
+                raw = ((c.website or '').replace('https://', '').replace('http://', '')).split('/')[0]
+                domain = raw.replace('www.', '').strip()
+            if not domain or '.' not in domain:
+                continue
+            result = _guess_and_verify_email(domain, c.company_name_en or '')
+            if result.get('email'):
+                c.email = result['email']
+                db.session.commit()
+                filled += 1
+                print(f'[Guess] {c.company_name_en[:30]} → {result["email"]} (verified={result.get("verified")})')
+            time.sleep(0.1)
+        except Exception as e:
+            db.session.rollback()
+            print(f'[Guess] Error {c.company_name_en[:20]}: {e}')
+
+    print(f'[Guess] Done: {filled}/{limit}')
+    return filled
+def batch_scrape_contacts(limit=100, skip_existing=True):
+    """批量爬取现有客户网站，提取邮箱电话。"""
+    from ..models import db, Customer
+    query = Customer.query.filter(Customer.website != '', Customer.website.isnot(None))
+    if skip_existing:
+        query = query.filter(db.or_(Customer.email == '', Customer.email.is_(None)))
+    customers = query.order_by(Customer.background_score.desc()).limit(limit).all()
+    enriched = 0
+    for c in customers:
+        try:
+            contacts = _scrape_website_contacts(c.website)
+            if contacts.get('email'):
+                c.email = contacts['email']; enriched += 1
+            if contacts.get('phone'):
+                c.phone = contacts['phone']
+            db.session.commit()
+            print(f'[Scrape] {c.company_name_en[:30]} → email={bool(contacts.get("email"))} phone={bool(contacts.get("phone"))}')
+            time.sleep(0.5)
+        except Exception as e:
+            db.session.rollback()
+            print(f'[Scrape] Error {c.company_name_en[:20]}: {e}')
+    print(f'[Scrape] Done: {enriched}/{limit}')
+    return enriched
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 全球鱼子酱贸易国家完整列表
 # Tier 1（高活跃/主要目标市场）：深度搜索，英文关键词 + 本地语言二次搜索
@@ -217,26 +374,44 @@ _CAVIAR_COUNTRIES = [
 
 # ── AI 客户端配置 ─────────────────────────────────────────────────────────────
 def _get_ai_client():
-    """按优先级自动选择可用的 AI API"""
-    # 优先用 DeepSeek
-    api_key = os.environ.get('DEEPSEEK_API_KEY') or os.environ.get('AI_SEARCH_API_KEY')
-    base_url = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
-    model = os.environ.get('AI_SEARCH_MODEL', 'deepseek-chat')
+    """按优先级自动选择可用的 AI API（DeepSeek > GROK > 通用 OPENAI_FORMAT_KEY）"""
+    # 1. DeepSeek
+    api_key = os.environ.get('DEEPSEEK_API_KEY')
+    if api_key:
+        base_url = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
+        model = os.environ.get('AI_SEARCH_MODEL', 'deepseek-chat')
+        return OpenAI(api_key=api_key, base_url=base_url), model
 
+    # 2. GROK (xAI) — 兼容 OpenAI 格式
+    api_key = os.environ.get('GROK_API_KEY')
+    if api_key:
+        base_url = os.environ.get('GROK_BASE_URL', 'https://api.x.ai/v1')
+        model = os.environ.get('GROK_MODEL', 'grok-2-latest')
+        return OpenAI(api_key=api_key, base_url=base_url), model
+
+    # 3. 通用兜底
+    api_key = os.environ.get('AI_SEARCH_API_KEY')
+    base_url = os.environ.get('AI_SEARCH_BASE_URL', 'https://api.deepseek.com/v1')
+    model = os.environ.get('AI_SEARCH_MODEL', 'deepseek-chat')
     if not api_key:
         raise RuntimeError(
-            '未配置 AI API Key。请设置环境变量 DEEPSEEK_API_KEY 或 AI_SEARCH_API_KEY。'
+            '未配置 AI API Key。请设置 DEEPSEEK_API_KEY、GROK_API_KEY 或 AI_SEARCH_API_KEY。'
         )
     return OpenAI(api_key=api_key, base_url=base_url), model
 
 
 # ── AI 搜索核心 ───────────────────────────────────────────────────────────────
-def _ai_search_companies(query: str, country: str, max_results: int = 10) -> list:
+def _ai_search_companies(query: str, country: str, local_lang: str = None, max_results: int = 15) -> list:
     """
     用 AI 直接生成目标企业列表。
-    返回: [{'company_name_en': ..., 'website': ..., 'snippet': ...}, ...]
+    支持本地语言（local_lang 非空时用本地语言提问）。
+    返回: [{'company_name_en': ..., 'website': ..., 'snippet': ..., 'country': ..., 'type': ...}, ...]
     """
     client, model = _get_ai_client()
+
+    lang_instruction = ""
+    if local_lang and local_lang not in ('caviar', 'Caviar'):
+        lang_instruction = f"Also search using the local term \"{local_lang}\" (the local word for caviar). "
 
     system_prompt = (
         "You are a B2B business intelligence database of VERIFIED companies in the global gourmet food industry. "
@@ -245,13 +420,14 @@ def _ai_search_companies(query: str, country: str, max_results: int = 10) -> lis
         "Format: JSON array only, no markdown, no explanation. "
         "Each element: {\"company_name_en\": \"...\", \"website\": \"...\", \"snippet\": \"25-word description\", \"country\": \"...\", \"type\": \"importer|distributor|retailer|producer\"}. "
         "Website must be a real domain you know exists, or empty string \"\" if unsure. "
-        "Return up to " + str(max_results) + " companies. Prioritize companies with known websites."
+        "Return exactly " + str(max_results) + " companies if possible. Prioritize companies with known websites."
     )
 
     user_prompt = (
         f"List REAL, VERIFIABLE companies in {country} that are involved in the caviar/sturgeon roe trade. "
+        + lang_instruction +
         f"Search context: \"{query}\". "
-        f"Include ONLY companies you can confirm exist — restaurants, importers, distributors, retailers, or producers. "
+        f"Include ALL types — restaurants, importers, distributors, retailers, producers, farms. "
         f"If you know their official website, include it. Otherwise leave website empty. "
         f"If you find fewer than {max_results} real companies, return only what you know. "
         f"Return JSON array only."
@@ -280,6 +456,95 @@ def _ai_search_companies(query: str, country: str, max_results: int = 10) -> lis
         return []
 
 
+def _ai_enrich_contact(company_name, website, country):
+    """
+    用 AI 搜索企业关键联系人信息。
+    返回: {'email': str, 'phone': str, 'contact_name': str}
+    """
+    client, model = _get_ai_client()
+    prompt = (
+        f"You are searching the web for contact information of: {company_name}. "
+        f"Website: {website or 'unknown'}. Country: {country}. "
+        f"Look for their official website, LinkedIn page, business directories (Kompass, Europages, etc.) "
+        f"to find: 1) A working business email address, 2) A phone number with country code, "
+        f"3) The name of a key person (CEO, founder, export/sales manager, procurement director). "
+        f"Return ONLY a JSON object: {{\"email\":\"...\",\"phone\":\"...\",\"contact_name\":\"...\"}}. "
+        f"For email, prefer general addresses like info@, sales@, contact@, export@. "
+        f"If the website domain is known (e.g. example.com), use the domain to construct likely emails. "
+        f"If you cannot confirm any piece of information, use empty string for that field. "
+        f"Do not make up data. Only return what you can verify."
+    )
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {'role': 'system', 'content': 'You are a business contact finder with web search capability. Return only valid JSON.'},
+                {'role': 'user', 'content': prompt},
+            ],
+            temperature=0.3,
+            max_tokens=400,
+        )
+        content = resp.choices[0].message.content.strip()
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+        if match:
+            result = json.loads(match.group())
+            # Validate email contains @
+            if result.get('email') and '@' not in str(result['email']):
+                result['email'] = ''
+            return result
+        return {}
+    except Exception as e:
+        print(f'[ContactEnrich] failed for {company_name}: {e}')
+        return {}
+
+
+# ── 批量联系人补全 ────────────────────────────────────────────────
+def batch_enrich_contacts(limit=50, skip_existing=True):
+    """
+    批量补全现有客户中缺失的联系信息。
+    返回补全数量。
+    """
+    from ..models import db, Customer
+
+    query = Customer.query.filter(Customer.website != '', Customer.website.isnot(None))
+    if skip_existing:
+        query = query.filter(
+            db.or_(
+                Customer.email == '',
+                Customer.email.is_(None),
+                Customer.phone == '',
+                Customer.phone.is_(None),
+                Customer.contact_name == '',
+                Customer.contact_name.is_(None),
+            )
+        )
+    customers = query.order_by(Customer.background_score.desc()).limit(limit).all()
+    enriched = 0
+
+    for c in customers:
+        try:
+            contact = _ai_enrich_contact(
+                c.company_name_en or '',
+                c.website or '',
+                c.country.name_en if c.country else ''
+            )
+            if contact.get('email'):
+                c.email = contact['email']
+                enriched += 1
+            if contact.get('phone'):
+                c.phone = contact['phone']
+            if contact.get('contact_name'):
+                c.contact_name = contact['contact_name']
+            db.session.commit()
+            print(f'[Enrich] {c.company_name_en[:30]} → email={bool(contact.get("email"))} phone={bool(contact.get("phone"))}')
+            time.sleep(0.3)
+        except Exception as e:
+            db.session.rollback()
+            print(f'[Enrich] Error {c.company_name_en[:20]}: {e}')
+
+    print(f'[Enrich] Batch done: {enriched}/{limit} enriched')
+    return enriched
+
 # ── 控制器（保持与原有接口完全兼容）────────────────────────────────────────────
 class CustomerSearchController:
     """客户搜索控制器（AI 搜索版，支持全球 150+ 国家 + 本地语言二次搜索）"""
@@ -290,17 +555,22 @@ class CustomerSearchController:
         'sturgeon caviar buyer',
         'premium gourmet food distributor',
         'luxury seafood importer',
+        'caviar trade import',
+        'caviar food distributor',
+        'gourmet seafood wholesale',
+        'fine food importer caviar',
+        'caviar export international trade',
     ]
 
     # tier 1 最大关键词数，tier 2 中等，tier 3 精简
-    _KW_COUNTS = {1: 5, 2: 3, 3: 1}
+    _KW_COUNTS = {1: 10, 2: 7, 3: 3}
 
     def __init__(self):
         pass
 
     def get_all_countries(self) -> list:
-        """返回全部国家英文名列表（Tier 1 → Tier 2 → Tier 3）"""
-        return [c[0] for c in _CAVIAR_COUNTRIES]
+        """返回全部国家英文名列表（Tier 1 → Tier 2 → Tier 3），排除中国"""
+        return [c[0] for c in _CAVIAR_COUNTRIES if c[0].lower() != 'china']
 
     def _find_country_info(self, country_name: str):
         """根据国家名查找完整信息"""
@@ -337,7 +607,7 @@ class CustomerSearchController:
 
         # 本地语言关键词（tier 1/2 二次搜索）
         if use_local and local_kw and local_kw.lower() != 'caviar':
-            for base in self.BASE_KEYWORDS[:2]:  # 本地语言只取 2 个变体
+            for base in self.BASE_KEYWORDS[:4]:  # 本地语言取 4 个变体
                 kw_local = f'{local_kw} {base}'.strip()
                 keywords.append(kw_local)
 
@@ -363,12 +633,21 @@ class CustomerSearchController:
 
         for kw in keywords:
             try:
-                found = _ai_search_companies(kw, country)
+                found = _ai_search_companies(kw, country, local_lang=local_kw)
                 for item in found:
                     url = item.get('website', '')
                     website_verified = _verify_url(url) if url else False
+                    # ── 联系人信息 AI 采集 ──
+                    company_name = item.get('company_name_en', '')
+                    contact = {}
+                    if company_name and url:
+                        try:
+                            contact = _ai_enrich_contact(company_name, url, country)
+                            time.sleep(0.5)
+                        except Exception:
+                            pass
                     results.append({
-                        'company_name_en': item.get('company_name_en', ''),
+                        'company_name_en': company_name,
                         'website': url,
                         'country': item.get('country', country),
                         'source': 'ai_search',
@@ -377,6 +656,9 @@ class CustomerSearchController:
                         'hs_code': hs_code,
                         'tier': tier,
                         'website_verified': website_verified,
+                        'email': contact.get('email', ''),
+                        'phone': contact.get('phone', ''),
+                        'contact_name': contact.get('contact_name', ''),
                     })
                 time.sleep(1)
             except Exception as e:

@@ -11,11 +11,26 @@ from openai import OpenAI
 
 # ── DeepSeek 客户端 ───────────────────────────────────────────────────────────
 def _get_ai_client():
-    api_key = os.environ.get('DEEPSEEK_API_KEY') or os.environ.get('AI_SEARCH_API_KEY')
-    base_url = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
+    # 1. DeepSeek
+    api_key = os.environ.get('DEEPSEEK_API_KEY')
+    if api_key:
+        base_url = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com/v1')
+        model = os.environ.get('AI_SEARCH_MODEL', 'deepseek-chat')
+        return OpenAI(api_key=api_key, base_url=base_url), model
+
+    # 2. GROK (xAI)
+    api_key = os.environ.get('GROK_API_KEY')
+    if api_key:
+        base_url = os.environ.get('GROK_BASE_URL', 'https://api.x.ai/v1')
+        model = os.environ.get('GROK_MODEL', 'grok-2-latest')
+        return OpenAI(api_key=api_key, base_url=base_url), model
+
+    # 3. 通用兜底
+    api_key = os.environ.get('AI_SEARCH_API_KEY')
+    base_url = os.environ.get('AI_SEARCH_BASE_URL', 'https://api.deepseek.com/v1')
     model = os.environ.get('AI_SEARCH_MODEL', 'deepseek-chat')
     if not api_key:
-        raise RuntimeError('未配置 DEEPSEEK_API_KEY 环境变量')
+        raise RuntimeError('未配置 AI API Key（DEEPSEEK_API_KEY / GROK_API_KEY / AI_SEARCH_API_KEY）')
     return OpenAI(api_key=api_key, base_url=base_url), model
 
 
